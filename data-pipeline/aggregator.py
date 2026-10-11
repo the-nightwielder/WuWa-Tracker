@@ -545,25 +545,39 @@ def _bounded_game8_get(url):
 
 def _game8_server_times(soup):
     times = {}
+    combined_hmt_sea = None
     for row in soup.find_all("tr"):
         cells = [clean_text(cell.get_text(" ", strip=True)) for cell in row.find_all(["td", "th"])]
         if len(cells) < 2:
             continue
         region_text = cells[0].lower()
+        combined = re.search(r"\bhmt\s*/\s*sea\b", region_text)
         key = next((value for name, (value, _) in GAME8_SERVER_ROWS.items() if re.search(rf"\b{name}\b", region_text)), None)
         if not key:
             continue
         offset = next(offset for name, (value, offset) in GAME8_SERVER_ROWS.items() if value == key and re.search(rf"\b{name}\b", region_text))
+        # Prefer the source's explicit UTC offset when available (it may change
+        # with daylight saving time); otherwise use the documented server offset.
+        offset_match = re.search(r"\b(?:UTC|GMT)\s*([+-])\s*(\d{1,2})(?::(\d{2}))?", " ".join(cells[:2]), re.I)
+        if offset_match:
+            minutes = int(offset_match.group(2)) * 60 + int(offset_match.group(3) or 0)
+            offset = (1 if offset_match.group(1) == "+" else -1) * minutes / 60
         matches = list(GAME8_DATE_TIME_RE.finditer(" ".join(cells[1:])))
         values = [_game8_datetime(match, offset) for match in matches]
         values = [value for value in values if value]
         if len(values) >= 2:
-            start, end = values[0], values[1]
-            times[key] = {"startAt": start, "endAt": end}
-            if key in {"HMT", "SEA"}:
-                times["HMT"] = {"startAt": start, "endAt": end}
-                times["SEA"] = {"startAt": start, "endAt": end}
-    if times:
+            record = {"startAt": values[0], "endAt": values[1]}
+            if combined:
+                combined_hmt_sea = record
+            else:
+                times[key] = record
+    if times or combined_hmt_sea:
+        shared_hmt_sea = combined_hmt_sea or times.get("HMT") or times.get("SEA")
+        if shared_hmt_sea:
+            # They remain independent UI choices while intentionally sharing
+            # the schedule specified for HMT/SEA.
+            times["HMT"] = dict(shared_hmt_sea)
+            times["SEA"] = dict(shared_hmt_sea)
         return times
     # Some Game8 layouts render the schedule as cards instead of table rows.
     flat = clean_text(soup.get_text(" ", strip=True))
@@ -578,9 +592,10 @@ def _game8_server_times(soup):
         if len(values) >= 2:
             record = {"startAt": values[0], "endAt": values[1]}
             times[key] = record
-            if key in {"HMT", "SEA"}:
-                times["HMT"] = record
-                times["SEA"] = record
+    shared_hmt_sea = times.get("HMT") or times.get("SEA")
+    if shared_hmt_sea:
+        times["HMT"] = dict(shared_hmt_sea)
+        times["SEA"] = dict(shared_hmt_sea)
     return times
 
 
@@ -679,42 +694,50 @@ def game8_banner_snapshot(source, soup, text, url, now):
 
 
 def prydwen_banner_snapshot(soup, text, url, now):
-    """Read current/upcoming/teased labels from Prydwen's maintained overview."""
+    """Read only character-linked entries inside Prydwen's banner sections."""
     headings = soup.find_all(["h2", "h3", "h4"])
     output = []
     section_status = None
-    for index, heading in enumerate(headings):
+    for heading in headings:
         label = clean_text(heading.get_text(" ", strip=True))
         low = label.lower()
-        if "current character banner" in low:
+        if re.search(r"\bcurrent character banners?\b", low):
             section_status = "CURRENT"
             continue
-        if "upcoming banner" in low or "expected banner" in low:
+        if re.fullmatch(r"(?:next|upcoming)(?: character)? banners?", low):
             section_status = "UPCOMING"
             continue
+        if "expected banner" in low:
+            section_status = "UPCOMING"
         if "teased" in low and "banner" in low:
             section_status = "TEASED"
-        version = VERSION_RE.search(label)
+        elif heading.name == "h2":
+            # Do not let a banner status bleed into FAQ, guides, or footer links.
+            section_status = None
+            continue
+        version = VERSION_RE.search(label) or re.search(r"\bpatch\s+(\d+\.\d+)\b", label, re.I)
         phase_match = re.search(r"phase\s*(?:([12])|([iv]+))", low)
         phase = int(phase_match.group(1)) if phase_match and phase_match.group(1) else (2 if phase_match and phase_match.group(2) == "ii" else 1 if phase_match and phase_match.group(2) == "i" else None)
         if not section_status or (not version and section_status != "TEASED"):
             continue
-        # Gather visible image labels and text from this patch/phase block only.
-        block = [heading]
-        for sibling in heading.find_all_next():
-            if sibling.name in {"h2", "h3", "h4"}:
-                break
-            block.append(sibling)
+        # Restrict a record to the content after its heading and before the
+        # next peer/parent heading. Never crawl the remainder of the page.
         names = []
-        for node in block:
-            if getattr(node, "name", None) not in {"img", "a"}:
+        for anchor in heading.find_all_next("a", href=True):
+            next_heading = anchor.find_previous(["h2", "h3", "h4"])
+            if next_heading is not heading:
+                break
+            parts = urlsplit(urljoin(url, anchor["href"]))
+            if parts.hostname not in {"prydwen.gg", "www.prydwen.gg"} or not re.search(r"/wuthering-waves/characters?/[^/]+", parts.path, re.I):
                 continue
-            candidate = clean_text(node.get("alt", "") or node.get("title", "") or node.get("aria-label", "") or node.get_text(" ", strip=True))
-            if not candidate and node.name == "a" and "/characters/" in node.get("href", ""):
-                candidate = urlsplit(node["href"]).path.rstrip("/").split("/")[-1].replace("-", " ").title()
-            if candidate and len(candidate) <= 40 and not re.search(r"banner|weapon|resonator|image|icon|phase|patch|current|upcoming|teased", candidate, re.I):
-                if candidate.lower() not in {name.lower() for name in names}:
-                    names.append(candidate)
+            image = anchor.find("img")
+            candidate = clean_text((image.get("alt", "") if image else "") or anchor.get("aria-label", "") or anchor.get("title", "") or anchor.get_text(" ", strip=True))
+            if not candidate:
+                candidate = parts.path.rstrip("/").split("/")[-1].replace("-", " ").title()
+            if (2 <= len(candidate) <= 40 and not re.search(
+                    r"banner|weapon|resonator|image|icon|phase|patch|current|upcoming|teased|guide|tier list|privacy|introduction|reroll|beginner|tips|free characters|gacha",
+                    candidate, re.I)) and candidate.lower() not in {name.lower() for name in names}:
+                names.append(candidate)
         if not names:
             continue
         output.append({
@@ -741,6 +764,13 @@ def main():
                     for row in (snapshot if isinstance(snapshot, list) else [snapshot]):
                         row['snapshotType'] = source.get('snapshotType')
                         snapshots.append(row)
+                elif source.get('snapshotType') in {'game8', 'prydwen'}:
+                    message = (
+                        'No banner articles with complete per-server timings were parsed'
+                        if source.get('snapshotType') == 'game8'
+                        else 'No character-linked banner entries were parsed'
+                    )
+                    errors.append({'sourceId': source['id'], 'error': message})
                 continue
             fn = {'google_news': google_news, 'rss': rss, 'html': html_page, 'official_json': official_json}[source['kind']]
             for item in fn(source):
