@@ -144,6 +144,22 @@
       "priority": 96
     },
     {
+      "id": "game8-banner-schedule",
+      "kind": "banner_snapshot",
+      "snapshotType": "game8",
+      "url": "https://game8.co/games/Wuthering-Waves/archives",
+      "category": "community",
+      "priority": 98
+    },
+    {
+      "id": "prydwen-banner-status",
+      "kind": "banner_snapshot",
+      "snapshotType": "prydwen",
+      "url": "https://www.prydwen.gg/wuthering-waves/banners",
+      "category": "community",
+      "priority": 97
+    },
+    {
       "id": "wuwatracker-timeline-weapons",
       "kind": "timeline_weapons",
       "url": "https://wuwatracker.com/timeline",
