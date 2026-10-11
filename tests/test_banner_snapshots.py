@@ -172,6 +172,22 @@ class Game8ScheduleParsingTest(unittest.TestCase):
         self.assertEqual(times["HMT"], times["SEA"])
         self.assertEqual("2026-10-11T02:00:00Z", times["HMT"]["startAt"])
 
+    def test_parses_abbreviated_months_and_split_start_end_rows(self):
+        soup = BeautifulSoup("""
+            <table>
+              <tr><td>America (UTC-4)</td></tr>
+              <tr><td>Start Date</td><td>Sep. 30, 2026 at 10:00 AM</td></tr>
+              <tr><td>End Date</td><td>Oct. 22, 2026 at 8:30 AM</td></tr>
+              <tr><td>Europe (UTC+2)</td><td>Sep. 30, 2026 at 10:00 AM - Oct. 22, 2026 at 8:30 AM</td></tr>
+            </table>
+        """, "html.parser")
+
+        times = _game8_server_times(soup)
+
+        self.assertEqual("2026-09-30T14:00:00Z", times["AMERICA"]["startAt"])
+        self.assertEqual("2026-10-22T12:30:00Z", times["AMERICA"]["endAt"])
+        self.assertEqual("2026-09-30T08:00:00Z", times["EUROPE"]["startAt"])
+
     def test_source_health_separates_fetch_failures_from_parser_failures(self):
         import requests
 
@@ -211,7 +227,7 @@ class PrydwenBannerParsingTest(unittest.TestCase):
         self.assertEqual(["Lynae"], [row["title"] for row in upcoming])
         self.assertNotIn("Introduction to the game", " ".join(row["title"] for row in snapshots))
 
-    def test_multiple_patch_versions_use_latest_and_old_prydwen_rows_are_removed(self):
+    def test_ambiguous_patch_heading_is_not_mislabeled_and_unscheduled_entry_becomes_next_version_tease(self):
         soup = BeautifulSoup("""
             <h2>Upcoming Banners</h2>
             <h3>Patch 3.6 and Patch 3.7 Expected Banners</h3>
@@ -222,9 +238,14 @@ class PrydwenBannerParsingTest(unittest.TestCase):
         """, "html.parser")
         snapshots = prydwen_banner_snapshot(soup, soup.get_text(" ", strip=True),
                                             "https://www.prydwen.gg/wuthering-waves/banners", "2026-10-11T00:00:00Z")
-        upcoming = next(row for row in snapshots if row["scheduleStatus"] == "UPCOMING")
-        self.assertEqual("3.7", upcoming["version"])
-        self.assertEqual(["Lynae"], upcoming["title"].split(", "))
+        upcoming = next(row for row in snapshots if row["title"] == "Lynae")
+        self.assertIsNone(upcoming["version"])
+        self.assertEqual("UPCOMING", upcoming["scheduleStatus"])
+        tagged_rows = [{**row, "snapshotType": "prydwen"} for row in snapshots]
+        tagged_rows = _harmonize_prydwen_rows(tagged_rows, "3.7")
+        teaser = next(row for row in tagged_rows if row["title"] == "Lily")
+        self.assertEqual("TEASED", teaser["scheduleStatus"])
+        self.assertEqual("3.8", teaser["version"])
         tagged = [{**row, "snapshotType": "prydwen"} for row in snapshots]
         tagged.append({"snapshotType": "prydwen", "version": "3.6", "title": "Old", "scheduleStatus": "UPCOMING"})
         kept = _remove_stale_prydwen_rows(tagged, "3.7")
@@ -251,6 +272,22 @@ class PrydwenBannerParsingTest(unittest.TestCase):
         self.assertEqual(game8["serverTimes"], prydwen["serverTimes"])
         self.assertEqual("Game8 Banner Schedule + Prydwen Banner Overview", prydwen["sourceLabel"])
         self.assertEqual("TEASED", rows[2]["scheduleStatus"])
+
+    def test_wuwabuild_supplies_featured_five_star_names_without_inventing_dates(self):
+        wuwabuild = {
+            "snapshotType": "wuwabuild", "title": "Hsin, Chisa, Iuno", "version": "3.7", "phase": 1,
+            "scheduleStatus": "CURRENT", "sourceLabel": "WuWaBuild Banner Schedule", "sourceUrls": [],
+        }
+        prydwen = {
+            "snapshotType": "prydwen", "title": "Hsin, Buling, Taoqi, Chisa, Iuno", "version": "3.7", "phase": 1,
+            "scheduleStatus": "CURRENT", "sourceLabel": "Prydwen Banner Overview", "sourceUrls": [],
+        }
+
+        _harmonize_prydwen_rows([wuwabuild, prydwen], "3.7")
+
+        self.assertEqual("Hsin, Chisa, Iuno", prydwen["title"])
+        self.assertNotIn("startAt", prydwen)
+        self.assertFalse(prydwen.get("serverTimes"))
 
     def test_teaser_section_without_character_cards_produces_no_teaser(self):
         soup = BeautifulSoup("""
