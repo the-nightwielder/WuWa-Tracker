@@ -7,7 +7,7 @@ from unittest.mock import patch
 from bs4 import BeautifulSoup
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "data-pipeline"))
-from aggregator import _game8_countdown_seconds, _game8_server_times, _harmonize_prydwen_rows, _remove_stale_prydwen_rows, _source_health_entry, game8_banner_snapshot, prydwen_banner_snapshot
+from aggregator import _game8_countdown_seconds, _game8_server_times, _harmonize_prydwen_rows, _remove_stale_prydwen_rows, _source_health_entry, banner_snapshot, game8_banner_snapshot, prydwen_banner_snapshot
 
 
 GAME8_OVERVIEW_HTML = """
@@ -98,6 +98,18 @@ class Game8ScheduleParsingTest(unittest.TestCase):
         self.assertEqual(2, len(snapshots))
         self.assertEqual(overview_url, snapshots[0]["sourceUrls"][0])
 
+    def test_direct_overview_is_tried_when_archive_index_fetch_fails(self):
+        overview_url = "https://game8.co/games/Wuthering-Waves/archives/453303"
+        response = SimpleNamespace(encoding="utf-8", url=overview_url)
+        with patch("aggregator.bounded_get", side_effect=[OSError("archive index unavailable"),
+                                                           (response, GAME8_OVERVIEW_HTML.encode())]):
+            snapshots = banner_snapshot({
+                "id": "game8-banner-schedule", "snapshotType": "game8",
+                "url": "https://game8.co/games/Wuthering-Waves/archives", "overviewUrl": overview_url,
+            })
+        self.assertEqual(2, len(snapshots))
+        self.assertEqual({"AMERICA", "EUROPE", "ASIA", "HMT", "SEA"}, set(snapshots[0]["serverTimes"]))
+
     def test_labeled_countdown_card_layout_is_parsed(self):
         self.assertEqual(11 * 86400 + 5 * 3600 + 31 * 60 + 30,
                          _game8_countdown_seconds("Countdown: 11 days, 5 hours, 31 minutes and 30 seconds remaining."))
@@ -128,6 +140,19 @@ class Game8ScheduleParsingTest(unittest.TestCase):
         self.assertEqual({"AMERICA", "EUROPE", "ASIA", "HMT", "SEA"}, set(snapshots[0]["serverTimes"]))
         self.assertEqual(snapshots[0]["serverTimes"]["HMT"], snapshots[0]["serverTimes"]["SEA"])
         self.assertEqual(snapshots[0]["serverTimes"]["SEA"]["endAt"], snapshots[1]["serverTimes"]["SEA"]["startAt"])
+
+    def test_alternate_live_heading_and_roman_phase_labels_are_parsed(self):
+        html = GAME8_OVERVIEW_HTML.replace("Current Banners in Wuthering Waves", "Active Character Banners")
+        html = html.replace("Next Upcoming Banners in Wuthering Waves", "Upcoming Character Banners")
+        html = html.replace("Phase 2 Banners", "Phase II Banners")
+        soup = BeautifulSoup(html, "html.parser")
+        snapshots = game8_banner_snapshot(
+            {"id": "game8-banner-schedule"}, soup, soup.get_text(" ", strip=True),
+            "https://game8.co/games/Wuthering-Waves/archives/453303", "2026-10-11T09:04:41.579960Z",
+        )
+        self.assertEqual(2, len(snapshots))
+        self.assertEqual([1, 2], [row["phase"] for row in snapshots])
+        self.assertEqual("UPCOMING", snapshots[1]["scheduleStatus"])
 
     def test_game8_times_attach_to_wuwabuild_rows_by_unique_version_phase_and_status(self):
         times = {server: {"startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z"}
