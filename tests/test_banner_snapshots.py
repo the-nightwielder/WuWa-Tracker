@@ -98,6 +98,43 @@ class Game8ScheduleParsingTest(unittest.TestCase):
         self.assertEqual(2, len(snapshots))
         self.assertEqual(overview_url, snapshots[0]["sourceUrls"][0])
 
+    def test_character_named_links_in_live_sections_discover_game8_timing_articles(self):
+        page = BeautifulSoup("""
+            <h2>Current Banners in Wuthering Waves</h2>
+            <h3>Phase 1 - Hsin</h3>
+            <a href="/games/Wuthering-Waves/archives/101">Hsin</a>
+            <a href="/games/Wuthering-Waves/archives/102">Chisa</a>
+            <a href="/games/Wuthering-Waves/archives/103">Iuno</a>
+            <h2>Next Upcoming Banners in Wuthering Waves</h2>
+            <h3>Phase 2</h3>
+            <a href="/games/Wuthering-Waves/archives/104">Suoming</a>
+            <a href="/games/Wuthering-Waves/archives/105">Lynae</a>
+            <a href="/games/Wuthering-Waves/archives/106">Lucilla</a>
+        """, "html.parser")
+        times = {server: {"startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z"}
+                 for server in ("AMERICA", "EUROPE", "ASIA", "HMT", "SEA")}
+        upcoming_times = {server: {"startAt": "2026-10-22T01:00:00Z", "endAt": "2026-11-11T01:00:00Z"}
+                          for server in ("AMERICA", "EUROPE", "ASIA", "HMT", "SEA")}
+
+        def article(url):
+            article_id = url.rsplit("/", 1)[-1]
+            phase_two = article_id in {"104", "105", "106"}
+            names = {"101": "Hsin", "102": "Chisa", "103": "Iuno",
+                     "104": "Suoming", "105": "Lynae", "106": "Lucilla"}
+            return {"name": names[article_id], "version": "3.7", "phase": 2 if phase_two else 1,
+                    "serverTimes": upcoming_times if phase_two else times, "url": url}
+
+        with patch("aggregator._game8_banner_article", side_effect=article):
+            snapshots = game8_banner_snapshot(
+                {"id": "game8-banner-schedule"}, page, page.get_text(" ", strip=True),
+                "https://game8.co/games/Wuthering-Waves/archives/453303", "2026-10-11T09:04:41Z",
+            )
+
+        self.assertEqual(["Hsin, Chisa, Iuno", "Suoming, Lynae, Lucilla"], [row["title"] for row in snapshots])
+        self.assertEqual(["CURRENT", "UPCOMING"], [row["scheduleStatus"] for row in snapshots])
+        self.assertTrue(all(set(row["serverTimes"]) == {"AMERICA", "EUROPE", "ASIA", "HMT", "SEA"}
+                            for row in snapshots))
+
     def test_direct_overview_is_tried_when_archive_index_fetch_fails(self):
         overview_url = "https://game8.co/games/Wuthering-Waves/archives/453303"
         response = SimpleNamespace(encoding="utf-8", url=overview_url)
