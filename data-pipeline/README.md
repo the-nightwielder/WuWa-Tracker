@@ -37,7 +37,7 @@ python -m unittest discover -s tests -v
 python data-pipeline/aggregator.py
 ```
 
-The aggregator writes `data-pipeline/feed.json`. It makes requests to the configured public sources, so source availability and returned results can vary. The tracked `feed.json` may be an empty seed file; the workflow runs the aggregator and publishes that run's generated feed to Pages. It does not commit the generated feed back to the repository.
+The aggregator writes `data-pipeline/feed.json`. It makes requests to the configured public sources, so source availability and returned results can vary. The generated feed is intentionally excluded from the copy-to-GitHub script because the workflow generates it before deployment. The tracked `feed.json` may be an empty seed file; the workflow runs the aggregator and publishes that run's generated feed to Pages. It does not commit the generated feed back to the repository.
 
 ### Update Python dependencies
 
