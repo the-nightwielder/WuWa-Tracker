@@ -407,9 +407,16 @@ def banner_snapshot(source):
             weapons = [art_weapon_map[name] for name in resonators if name in art_weapon_map]
             weapons += [part.strip() for part in (weapon or "").split(",") if part.strip()]
             weapons = list(dict.fromkeys(weapons))
+            schedule_status = None
+            if start and end:
+                start_instant = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                end_instant = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                current_instant = datetime.now(timezone.utc)
+                schedule_status = "CURRENT" if start_instant <= current_instant <= end_instant else "UPCOMING" if start_instant > current_instant else None
             output.append({
                 "title": ", ".join(resonators), "version": vm.group(1), "phase": int(pm.group(1)),
                 "startAt": start, "endAt": end, "weapon": ", ".join(weapons),
+                "scheduleStatus": schedule_status,
                 "resonatorImages": {name: image for name in resonators if (image := fandom_image(name))},
                 "weaponImages": {name: image for name in weapons if (image := (fandom_image(name) or art_weapon_urls.get(name)))},
                 "status": "COMMUNITY", "confidence": 0.86,
@@ -998,6 +1005,17 @@ def _harmonize_prydwen_rows(snapshots, live_version=None):
                 major, minor = map(int, live_version.split("."))
                 row["version"] = f"{major}.{minor + 1}"
             continue
+        if row.get("scheduleStatus") == "UPCOMING" and row.get("phase") is None and not row.get("serverTimes"):
+            # A singleton without a phase is a tease; a multi-character group
+            # remains an upcoming lineup. Ambiguous headings target next version.
+            names_in_row = [name.strip() for name in re.split(r",|\band\b", row.get("title", "")) if name.strip()]
+            if len(names_in_row) == 1:
+                row["scheduleStatus"] = "TEASED"
+            if not row.get("version") and live_version:
+                major, minor = map(int, live_version.split("."))
+                row["version"] = f"{major}.{minor + 1}"
+            if row.get("scheduleStatus") == "TEASED":
+                continue
         names = {name.strip().casefold() for name in re.split(r",|\band\b", row.get("title", "")) if name.strip()}
         candidates = [candidate for candidate in name_sources
                       if (candidate.get("snapshotType") == "wuwabuild" or candidate.get("scheduleStatus") == row.get("scheduleStatus"))
@@ -1028,14 +1046,6 @@ def _harmonize_prydwen_rows(snapshots, live_version=None):
             row["confidence"] = min(timed.get("confidence", 0.9), row.get("confidence", 0.9))
         else:
             row["version"] = best.get("version")
-        if row.get("scheduleStatus") == "UPCOMING" and row.get("phase") is None and not row.get("serverTimes"):
-            # An unscheduled, phase-less Prydwen expectation is a tease. Its
-            # patch heading can describe the live/transition patch, so target
-            # the next version instead of presenting that heading as a schedule.
-            row["scheduleStatus"] = "TEASED"
-            if live_version:
-                major, minor = map(int, live_version.split("."))
-                row["version"] = f"{major}.{minor + 1}"
     return snapshots
 
 
