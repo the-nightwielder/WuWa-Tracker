@@ -541,7 +541,10 @@ def _game8_countdown_seconds(text):
     parts = list(GAME8_COUNTDOWN_RE.finditer(text))
     if not parts:
         return None
-    residue = GAME8_COUNTDOWN_RE.sub("", text).strip(" ,·|:;\t\r\n")
+    residue = GAME8_COUNTDOWN_RE.sub(" ", text).lower()
+    # Game8 renders timers as bare values and as labeled countdown widgets.
+    residue = re.sub(r"\b(?:countdown|time|remaining|left|in|expires|ends?|server|america|europe|asia|hmt|sea|utc|gmt|and)\b", " ", residue)
+    residue = re.sub(r"[()./:,·|;\-–—+\s]", "", residue)
     if residue:
         return None
     seconds = 0
@@ -556,6 +559,10 @@ def _game8_countdown_seconds(text):
         else:
             seconds += value
     return seconds if seconds > 0 else None
+
+
+def _game8_timer_text(text):
+    return re.split(r"\b(?:phase\s*[12]|featured\s+characters?|character\s+banners?|next\s+upcoming\s+banners?)\b", text, maxsplit=1, flags=re.I)[0]
 
 
 def _game8_utc_datetime(value):
@@ -606,10 +613,12 @@ def _bounded_game8_get(url):
     raise ValueError("Too many redirects while reading the Game8 banner guide")
 
 
-def _game8_server_times(soup, now=None):
+def _game8_server_times(soup, now=None, calendar_text=None):
     observed_at = _game8_utc_datetime(now or datetime.now(timezone.utc))
     times = {}
     combined_hmt_sea = None
+    page_text = clean_text(soup.get_text(" ", strip=True))
+    page_date_span = _game8_date_span(calendar_text or page_text)
     for row in soup.find_all("tr"):
         cells = [clean_text(cell.get_text(" ", strip=True)) for cell in row.find_all(["td", "th"])]
         if len(cells) < 2:
@@ -641,6 +650,7 @@ def _game8_server_times(soup, now=None):
         # live remaining-time countdown for each server instead of date/time strings.
         table = row.find_parent("table")
         date_span = _game8_date_span(clean_text(table.get_text(" ", strip=True))) if table else None
+        date_span = date_span or page_date_span
         remaining = _game8_countdown_seconds(" ".join(cells[1:]))
         if date_span and remaining is not None:
             start_date, end_date = date_span
@@ -661,18 +671,40 @@ def _game8_server_times(soup, now=None):
             times["SEA"] = dict(shared_hmt_sea)
         return times
     # Some Game8 layouts render the schedule as cards instead of table rows.
-    flat = clean_text(soup.get_text(" ", strip=True))
-    regions = list(re.finditer(r"\b(America|Europe|Asia|HMT\s*/\s*SEA|HMT|SEA)\b[^|]{0,24}", flat, re.I))
+    flat = clean_text(calendar_text) if calendar_text else page_text
+    regions = list(re.finditer(r"\b(America|Europe|Asia|HMT\s*/\s*SEA|HMT|SEA)\b", flat, re.I))
     for index, region in enumerate(regions):
         region_name = re.sub(r"\s*/\s*", " / ", region.group(1)).lower()
         key, offset = ("HMT", 8) if region_name in {"hmt / sea", "hmt"} else ("SEA", 8) if region_name == "sea" else GAME8_SERVER_ROWS[region_name]
         stop = regions[index + 1].start() if index + 1 < len(regions) else min(len(flat), region.end() + 420)
-        matches = list(GAME8_DATE_TIME_RE.finditer(flat[region.start():stop]))
+        segment = flat[region.start():stop]
+        matches = list(GAME8_DATE_TIME_RE.finditer(segment))
         values = [_game8_datetime(match, offset) for match in matches]
         values = [value for value in values if value]
         if len(values) >= 2:
             record = {"startAt": values[0], "endAt": values[1]}
             times[key] = record
+            continue
+        remaining = _game8_countdown_seconds(_game8_timer_text(segment))
+        if page_date_span and remaining is not None:
+            start_date, end_date = page_date_span
+            end_at = observed_at + timedelta(seconds=remaining)
+            start_at = end_at - timedelta(days=(end_date - start_date).days)
+            times[key] = {"startAt": _game8_iso(start_at), "endAt": _game8_iso(end_at)}
+    # Game8 commonly displays HMT and SEA as one timer card, which can be
+    # separated into two labels by its responsive markup before this text pass.
+    if "HMT" not in times and "SEA" not in times:
+        combined_match = re.search(r"\bHMT\s*/\s*SEA\b", flat, re.I)
+        if combined_match and page_date_span:
+            next_region = re.search(r"\b(?:America|Europe|Asia)\b", flat[combined_match.end():], re.I)
+            stop = combined_match.end() + next_region.start() if next_region else min(len(flat), combined_match.end() + 420)
+            remaining = _game8_countdown_seconds(_game8_timer_text(flat[combined_match.start():stop]))
+            if remaining is not None:
+                start_date, end_date = page_date_span
+                end_at = observed_at + timedelta(seconds=remaining)
+                start_at = end_at - timedelta(days=(end_date - start_date).days)
+                times["HMT"] = {"startAt": _game8_iso(start_at), "endAt": _game8_iso(end_at)}
+                times["SEA"] = dict(times["HMT"])
     shared_hmt_sea = times.get("HMT") or times.get("SEA")
     if shared_hmt_sea:
         times["HMT"] = dict(shared_hmt_sea)
@@ -714,6 +746,7 @@ def game8_banner_snapshot(source, soup, text, url, now):
     maintained = next((href for label, href in guide_links
                        if (re.search(r"all\s+banners?\b.*\bcurrent\b.*\b(?:next|upcoming)\b", label, re.I)
                            or re.search(r"all\s+current\s+and\s+(?:next|upcoming)\s+banners?", label, re.I))), None)
+    maintained = maintained or source.get("overviewUrl")
     if not maintained:
         version_guides = []
         for label, href in guide_links:
@@ -791,6 +824,33 @@ def _game8_section(headings, predicate):
     return heading, section
 
 
+def _game8_section_text(heading, stop_heading=None):
+    """Collect section text without assuming Game8 uses tables for the content."""
+    parts = []
+    for node in heading.find_all_next(string=True):
+        if stop_heading is not None and stop_heading in node.parents:
+            break
+        parent_h2 = node.find_parent("h2")
+        if parent_h2 is not None and parent_h2 is not heading:
+            break
+        value = str(node).strip()
+        if value:
+            parts.append(value)
+    return clean_text(" ".join(parts))
+
+
+def _game8_text_before(soup, stop_node):
+    parts = []
+    for node in soup.descendants:
+        if node is stop_node:
+            break
+        if not getattr(node, "name", None):
+            value = str(node).strip()
+            if value:
+                parts.append(value)
+    return clean_text(" ".join(parts))
+
+
 def _game8_featured_characters(section):
     for table in (node for node in section if node.name == "table"):
         table_text = clean_text(table.get_text(" ", strip=True))
@@ -834,25 +894,24 @@ def _game8_overview_snapshots(soup, url, now):
     if not current_heading or not upcoming_heading:
         return None
 
-    server_times = _game8_server_times(soup, now)
-    if not server_times:
+    current_text = _game8_section_text(current_heading, upcoming_heading)
+    upcoming_text = _game8_section_text(upcoming_heading)
+    server_times = _game8_server_times(soup, now, current_text)
+    required_servers = {"AMERICA", "EUROPE", "ASIA", "HMT", "SEA"}
+    if not required_servers.issubset(server_times):
         return None
-    current_tables = [node for node in current_section if node.name == "table"]
-    current_dates = next((_game8_date_span(clean_text(table.get_text(" ", strip=True)))
-                          for table in current_tables
-                          if _game8_date_span(clean_text(table.get_text(" ", strip=True)))), None)
-    upcoming_text = clean_text(" ".join(node.get_text(" ", strip=True) for node in upcoming_section))
+    current_dates = _game8_date_span(current_text)
     upcoming_dates = _game8_date_span(upcoming_text)
     if not current_dates or not upcoming_dates:
         return None
 
-    version_match = VERSION_RE.search(clean_text(soup.get_text(" ", strip=True)))
+    version_candidates = list(VERSION_RE.finditer(_game8_text_before(soup, current_heading) + " " + current_text))
+    version_match = version_candidates[-1] if version_candidates else None
     if not version_match:
         return None
     version = version_match.group(1)
     current_phase_heading = next((node for node in current_section
                                   if node.name in {"h3", "h4"} and re.search(r"\bphase\s*[1i]\b", node.get_text(" ", strip=True), re.I)), None)
-    upcoming_text = clean_text(" ".join(node.get_text(" ", strip=True) for node in upcoming_section))
     upcoming_phase_match = re.search(r"\bphase\s*([12])\s+banners?\b", upcoming_text, re.I)
     if not current_phase_heading:
         return None
@@ -903,6 +962,42 @@ def _source_health_entry(source_id, error, stage=None):
     return {"sourceId": source_id, "stage": stage, "error": str(error)[:300]}
 
 
+def _remove_stale_prydwen_rows(snapshots, live_version):
+    if not live_version:
+        return snapshots
+    live = tuple(map(int, live_version.split(".")))
+    return [row for row in snapshots if not (
+        row.get("snapshotType") == "prydwen" and row.get("version")
+        and tuple(map(int, row["version"].split("."))) < live
+    )]
+
+
+def _harmonize_prydwen_rows(snapshots):
+    """Use Prydwen lifecycle labels with Game8's phase names and regional times."""
+    schedules = [row for row in snapshots if row.get("snapshotType") == "game8" and row.get("serverTimes")]
+    for row in snapshots:
+        if row.get("snapshotType") != "prydwen" or row.get("scheduleStatus") == "TEASED":
+            continue
+        names = {name.strip().casefold() for name in re.split(r",|\band\b", row.get("title", "")) if name.strip()}
+        candidates = [candidate for candidate in schedules
+                      if candidate.get("scheduleStatus") == row.get("scheduleStatus")
+                      and candidate.get("version") == row.get("version")
+                      and candidate.get("phase") == row.get("phase")]
+        best = max(candidates, key=lambda candidate: len(names & {
+            name.strip().casefold() for name in re.split(r",|\band\b", candidate.get("title", "")) if name.strip()
+        }), default=None)
+        if best is None:
+            continue
+        matched = names & {name.strip().casefold() for name in re.split(r",|\band\b", best.get("title", "")) if name.strip()}
+        if not matched:
+            continue
+        row.update({key: best[key] for key in ("title", "version", "phase", "startAt", "endAt", "serverTimes", "timingBasis") if key in best})
+        row["sourceLabel"] = "Game8 Banner Schedule + Prydwen Banner Overview"
+        row["sourceUrls"] = list(dict.fromkeys(best.get("sourceUrls", []) + row.get("sourceUrls", [])))
+        row["confidence"] = min(best.get("confidence", 0.9), row.get("confidence", 0.9))
+    return snapshots
+
+
 def prydwen_banner_snapshot(soup, text, url, now):
     """Read only character-linked entries inside Prydwen's banner sections."""
     headings = soup.find_all(["h2", "h3", "h4"])
@@ -925,10 +1020,13 @@ def prydwen_banner_snapshot(soup, text, url, now):
             # Do not let a banner status bleed into FAQ, guides, or footer links.
             section_status = None
             continue
-        version = VERSION_RE.search(label) or re.search(r"\bpatch\s+(\d+\.\d+)\b", label, re.I)
+        version_matches = list(VERSION_RE.finditer(label))
+        patch_matches = list(re.finditer(r"\bpatch\s+(\d+\.\d+)\b", label, re.I))
+        version_values = [match.group(1) for match in version_matches] + [match.group(1) for match in patch_matches]
+        version_value = max(version_values, key=lambda value: tuple(map(int, value.split(".")))) if version_values else None
         phase_match = re.search(r"phase\s*(?:([12])|([iv]+))", low)
         phase = int(phase_match.group(1)) if phase_match and phase_match.group(1) else (2 if phase_match and phase_match.group(2) == "ii" else 1 if phase_match and phase_match.group(2) == "i" else None)
-        if not section_status or (not version and section_status != "TEASED"):
+        if not section_status or (not version_value and section_status != "TEASED"):
             continue
         # Restrict a record to the content after its heading and before the
         # next peer/parent heading. Never crawl the remainder of the page.
@@ -955,7 +1053,7 @@ def prydwen_banner_snapshot(soup, text, url, now):
         if not names:
             continue
         output.append({
-            "title": ", ".join(dict.fromkeys(names)), "version": version.group(1) if version else None, "phase": phase,
+            "title": ", ".join(dict.fromkeys(names)), "version": version_value, "phase": phase,
             "startAt": None, "endAt": None, "status": "COMMUNITY", "scheduleStatus": section_status,
             "confidence": 0.9, "sourceLabel": "Prydwen Banner Overview", "sourceUrls": [url], "snapshotAt": now,
         })
@@ -1020,6 +1118,8 @@ def main():
         if start <= now_utc <= end:
             live_version_candidates.append(snapshot["version"])
     live_version = max(live_version_candidates, key=lambda value: tuple(map(int, value.split(".")))) if live_version_candidates else None
+    snapshots = _remove_stale_prydwen_rows(snapshots, live_version)
+    snapshots = _harmonize_prydwen_rows(snapshots)
     current_version = live_version
     if current_version:
         major, minor = map(int, current_version.split("."))
