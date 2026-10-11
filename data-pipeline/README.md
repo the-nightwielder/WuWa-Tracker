@@ -4,13 +4,13 @@ This pipeline collects public Wuthering Waves news and schedule information, nor
 
 ## Sources and labels
 
-Sources are configured in [`sources.json`](sources.json). The pipeline currently reads public pages and feeds, including Google News RSS search results, Reddit RSS feeds, and public schedule or game-information sites. It does not require an X/Twitter API token and does not bypass site access controls.
+Sources are configured in [`sources.json`](sources.json). The pipeline does not require an X/Twitter API token and does not bypass site access controls.
 
 An item is labeled `OFFICIAL` only when publisher metadata identifies an approved Kuro Games domain or the official Wuthering Waves X account; a source's configured category alone is not enough. Items from sources configured as `leak-community`, and other items whose title or summary contains leak-related terms, are labeled `LEAK`. This label does not confirm a claim.
 
-The pipeline reads Google News RSS search results, Reddit RSS, selected public HTML pages and schedule snapshots, and Kuro Games' official news JSON index. Official news items with dates within 60 days of feed generation are included. Each remote response is limited to 10 MiB. Source failures are recorded in `sourceHealth` where possible, and one failed source does not prevent other sources from being processed.
+The pipeline reads Google News RSS search results, Reddit RSS, selected public HTML pages and schedule snapshots, and Kuro Games' official news JSON index. The direct official-site JSON source contributes items dated within 60 days of feed generation. Each remote response is limited to 10 MiB. Source failures are recorded in `sourceHealth` where possible, and one failed source does not prevent other sources from being processed.
 
-The live game version is taken only from a dated schedule snapshot marked as current and active at feed-generation time; an official announcement of a future version does not by itself make that version current. Leak-community searches are narrowed to the next minor version. When an article states an eligible version, the pipeline adds it as `targetVersion` metadata for the app to use when filtering.
+The live game version is taken only from a dated schedule snapshot marked as current and active at feed-generation time; an official announcement of a future version does not by itself make that version current. Leak-community searches are narrowed to the next minor version. A report receives `targetVersion` metadata only when an eligible version is stated explicitly; a version in the headline takes precedence over one in the summary. The app uses this metadata as part of its version-relevance filtering.
 
 ## Feed contents
 
