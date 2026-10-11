@@ -10,7 +10,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import quote_plus, urljoin, urlsplit
 
 from security_controls import is_verified_official_source, read_bounded_chunks
 
@@ -351,6 +351,10 @@ def banner_snapshot(source):
     text = clean_text(soup.get_text(" ", strip=True) + " " + image_labels)
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     url = r.url
+    if source.get("snapshotType") == "game8":
+        return game8_banner_snapshot(source, soup, text, url, now)
+    if source.get("snapshotType") == "prydwen":
+        return prydwen_banner_snapshot(soup, text, url, now)
     if source.get("snapshotType") == "wuwabuild":
         version = VERSION_RE.search(text)
         resonator_art, weapon_art, art_weapon_urls = [], [], {}
@@ -490,6 +494,237 @@ def timeline_weapon_details(source):
     return details
 
 
+GAME8_SERVER_ROWS = {
+    "america": ("AMERICA", -5),
+    "europe": ("EUROPE", 1),
+    "asia": ("ASIA", 9),
+    "hmt": ("HMT", 8),
+    "sea": ("SEA", 8),
+}
+GAME8_DATE_TIME_RE = re.compile(
+    r"\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"\s+\d{1,2},?\s+20\d{2})\s*(?:at\s*)?(\d{1,2}(?::\d{2})?\s*[AP]M)\b", re.I)
+
+
+def _game8_datetime(match, offset_hours):
+    date_text, time_text = match.groups()
+    normalized = re.sub(r",(?=\s*20\d{2})", "", date_text)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    time_text = re.sub(r"\s+", "", time_text).upper()
+    parsed = None
+    for date_format in ("%B %d %Y", "%b %d %Y"):
+        for time_format in ("%I:%M%p", "%I%p"):
+            try:
+                parsed = datetime.strptime(f"{normalized} {time_text}", f"{date_format} {time_format}")
+                break
+            except ValueError:
+                continue
+        if parsed:
+            break
+    if not parsed:
+        return None
+    return parsed.replace(tzinfo=timezone(timedelta(hours=offset_hours))).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _bounded_game8_get(url):
+    """Follow only same-site Game8 redirects while scraping the public guide."""
+    for _ in range(4):
+        if urlsplit(url).hostname not in {"game8.co", "www.game8.co"}:
+            raise ValueError("Refusing to fetch a banner link outside the Game8 domain")
+        response, body = bounded_get(url, allow_redirects=False)
+        if response.is_redirect:
+            location = response.headers.get("Location")
+            if not location:
+                raise ValueError("Game8 returned a redirect without a destination")
+            url = urljoin(response.url, location)
+            continue
+        return response, body
+    raise ValueError("Too many redirects while reading the Game8 banner guide")
+
+
+def _game8_server_times(soup):
+    times = {}
+    for row in soup.find_all("tr"):
+        cells = [clean_text(cell.get_text(" ", strip=True)) for cell in row.find_all(["td", "th"])]
+        if len(cells) < 2:
+            continue
+        region_text = cells[0].lower()
+        key = next((value for name, (value, _) in GAME8_SERVER_ROWS.items() if re.search(rf"\b{name}\b", region_text)), None)
+        if not key:
+            continue
+        offset = next(offset for name, (value, offset) in GAME8_SERVER_ROWS.items() if value == key and re.search(rf"\b{name}\b", region_text))
+        matches = list(GAME8_DATE_TIME_RE.finditer(" ".join(cells[1:])))
+        values = [_game8_datetime(match, offset) for match in matches]
+        values = [value for value in values if value]
+        if len(values) >= 2:
+            start, end = values[0], values[1]
+            times[key] = {"startAt": start, "endAt": end}
+            if key in {"HMT", "SEA"}:
+                times["HMT"] = {"startAt": start, "endAt": end}
+                times["SEA"] = {"startAt": start, "endAt": end}
+    if times:
+        return times
+    # Some Game8 layouts render the schedule as cards instead of table rows.
+    flat = clean_text(soup.get_text(" ", strip=True))
+    regions = list(re.finditer(r"\b(America|Europe|Asia|HMT\s*/\s*SEA|HMT|SEA)\b[^|]{0,24}", flat, re.I))
+    for index, region in enumerate(regions):
+        region_name = re.sub(r"\s*/\s*", " / ", region.group(1)).lower()
+        key, offset = ("HMT", 8) if region_name in {"hmt / sea", "hmt"} else ("SEA", 8) if region_name == "sea" else GAME8_SERVER_ROWS[region_name]
+        stop = regions[index + 1].start() if index + 1 < len(regions) else min(len(flat), region.end() + 420)
+        matches = list(GAME8_DATE_TIME_RE.finditer(flat[region.start():stop]))
+        values = [_game8_datetime(match, offset) for match in matches]
+        values = [value for value in values if value]
+        if len(values) >= 2:
+            record = {"startAt": values[0], "endAt": values[1]}
+            times[key] = record
+            if key in {"HMT", "SEA"}:
+                times["HMT"] = record
+                times["SEA"] = record
+    return times
+
+
+def _game8_banner_article(url):
+    r, body = _bounded_game8_get(url)
+    soup = BeautifulSoup(body.decode(r.encoding or "utf-8", errors="replace"), "html.parser")
+    text = clean_text(soup.get_text(" ", strip=True))
+    heading = clean_text(soup.find("h1").get_text(" ", strip=True)) if soup.find("h1") else ""
+    title_match = re.match(r"(.+?)\s+(?:Rerun\s+)?Banner\s+Release\s+Date", heading, re.I)
+    name = clean_text(title_match.group(1)).replace(" Rerun", "") if title_match else ""
+    run_match = re.search(r"Latest Run\s*Version\s*(\d+\.\d+)", text, re.I)
+    version_match = VERSION_RE.search(heading) or VERSION_RE.search(text)
+    version = run_match.group(1) if run_match else version_match.group(1) if version_match else None
+    phase_match = re.search(r"(?:first|1st)\s+phase.{0,100}?Version\s+\d+\.\d+", text, re.I)
+    phase = 1 if phase_match else None
+    if not phase:
+        phase_match = re.search(r"(?:second|2nd)\s+phase.{0,100}?Version\s+\d+\.\d+", text, re.I)
+        if phase_match:
+            phase = 2
+    if not phase:
+        phase_match = re.search(r"Phase\s*(II|2|I|1)", text, re.I)
+        if phase_match:
+            phase = 2 if phase_match.group(1).upper() in {"II", "2"} else 1
+    server_times = _game8_server_times(soup)
+    if not name or not version or phase not in (1, 2) or not server_times:
+        return None
+    return {"name": name, "version": version, "phase": phase, "serverTimes": server_times, "url": r.url}
+
+
+def game8_banner_snapshot(source, soup, text, url, now):
+    """Discover the latest Game8 banner guide and its current/upcoming character pages."""
+    guide_links = [(clean_text(anchor.get_text(" ", strip=True)), urljoin(url, anchor["href"]))
+                   for anchor in soup.find_all("a", href=True)
+                   if urlsplit(urljoin(url, anchor["href"])).hostname in {"game8.co", "www.game8.co"}]
+    maintained = next((href for label, href in guide_links
+                       if re.search(r"all current and (?:next|upcoming) banners", label, re.I)), None)
+    if not maintained:
+        version_guides = []
+        for label, href in guide_links:
+            version_match = VERSION_RE.search(label)
+            if version_match and re.search(r"banner", label, re.I):
+                version_guides.append((tuple(map(int, version_match.group(1).split("."))), href))
+        maintained = max(version_guides, default=(None, None), key=lambda item: item[0])[1]
+    guide_url = maintained
+    if guide_url and guide_url != url:
+        response, body = _bounded_game8_get(guide_url)
+        url = response.url
+        soup = BeautifulSoup(body.decode(response.encoding or "utf-8", errors="replace"), "html.parser")
+        text = clean_text(soup.get_text(" ", strip=True))
+    article_urls = []
+    for anchor in soup.find_all("a", href=True):
+        label = clean_text(anchor.get_text(" ", strip=True) or anchor.get("title", ""))
+        href = urljoin(url, anchor["href"])
+        parts = urlsplit(href)
+        if (parts.hostname not in {"game8.co", "www.game8.co"} or "/games/Wuthering-Waves/archives/" not in parts.path
+                or not re.search(r"banner|convene|rerun", f"{label} {parts.path}", re.I)):
+            continue
+        article_urls.append(href.split("?", 1)[0])
+    article_urls = list(dict.fromkeys(article_urls))[:12]
+    grouped = {}
+    for article_url in article_urls:
+        try:
+            record = _game8_banner_article(article_url)
+        except Exception:
+            continue
+        if not record:
+            continue
+        key = (record["version"], record["phase"])
+        group = grouped.setdefault(key, {"names": [], "serverTimes": record["serverTimes"], "urls": []})
+        if record["name"].lower() not in {name.lower() for name in group["names"]}:
+            group["names"].append(record["name"])
+        group["urls"].append(record["url"])
+        # Prefer a complete server set if one linked character page has it.
+        if len(record["serverTimes"]) > len(group["serverTimes"]):
+            group["serverTimes"] = record["serverTimes"]
+    output = []
+    current = datetime.now(timezone.utc)
+    for (version, phase), group in grouped.items():
+        times = group["serverTimes"]
+        sea = times.get("SEA", {})
+        start, end = sea.get("startAt"), sea.get("endAt")
+        if not start or not end:
+            continue
+        end_instant = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        if end_instant < current - timedelta(days=1):
+            continue
+        start_instant = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        output.append({
+            "title": ", ".join(group["names"]), "version": version, "phase": phase,
+            "startAt": start, "endAt": end, "serverTimes": times,
+            "status": "COMMUNITY", "scheduleStatus": "CURRENT" if start_instant <= current <= end_instant else "UPCOMING",
+            "confidence": 0.98, "sourceLabel": "Game8 Banner Schedule",
+            "sourceUrls": list(dict.fromkeys(group["urls"])), "snapshotAt": now,
+        })
+    return output or None
+
+
+def prydwen_banner_snapshot(soup, text, url, now):
+    """Read current/upcoming/teased labels from Prydwen's maintained overview."""
+    headings = soup.find_all(["h2", "h3", "h4"])
+    output = []
+    section_status = None
+    for index, heading in enumerate(headings):
+        label = clean_text(heading.get_text(" ", strip=True))
+        low = label.lower()
+        if "current character banner" in low:
+            section_status = "CURRENT"
+            continue
+        if "upcoming banner" in low or "expected banner" in low:
+            section_status = "UPCOMING"
+            continue
+        if "teased" in low and "banner" in low:
+            section_status = "TEASED"
+        version = VERSION_RE.search(label)
+        phase_match = re.search(r"phase\s*(?:([12])|([iv]+))", low)
+        phase = int(phase_match.group(1)) if phase_match and phase_match.group(1) else (2 if phase_match and phase_match.group(2) == "ii" else 1 if phase_match and phase_match.group(2) == "i" else None)
+        if not section_status or (not version and section_status != "TEASED"):
+            continue
+        # Gather visible image labels and text from this patch/phase block only.
+        block = [heading]
+        for sibling in heading.find_all_next():
+            if sibling.name in {"h2", "h3", "h4"}:
+                break
+            block.append(sibling)
+        names = []
+        for node in block:
+            if getattr(node, "name", None) not in {"img", "a"}:
+                continue
+            candidate = clean_text(node.get("alt", "") or node.get("title", "") or node.get("aria-label", "") or node.get_text(" ", strip=True))
+            if not candidate and node.name == "a" and "/characters/" in node.get("href", ""):
+                candidate = urlsplit(node["href"]).path.rstrip("/").split("/")[-1].replace("-", " ").title()
+            if candidate and len(candidate) <= 40 and not re.search(r"banner|weapon|resonator|image|icon|phase|patch|current|upcoming|teased", candidate, re.I):
+                if candidate.lower() not in {name.lower() for name in names}:
+                    names.append(candidate)
+        if not names:
+            continue
+        output.append({
+            "title": ", ".join(dict.fromkeys(names)), "version": version.group(1) if version else None, "phase": phase,
+            "startAt": None, "endAt": None, "status": "COMMUNITY", "scheduleStatus": section_status,
+            "confidence": 0.9, "sourceLabel": "Prydwen Banner Overview", "sourceUrls": [url], "snapshotAt": now,
+        })
+    return output or None
+
+
 def main():
     items, errors, snapshots, timeline_weapons, next_version_searches = [], [], [], {}, []
     for source in SOURCES:
@@ -518,7 +753,20 @@ def main():
     now_utc = datetime.now(timezone.utc)
     live_version_candidates = []
     for snapshot in snapshots:
-        if snapshot.get("snapshotType") != "current" or not snapshot.get("version"):
+        if not snapshot.get("version"):
+            continue
+        if snapshot.get("snapshotType") == "game8" and snapshot.get("serverTimes"):
+            for timing in snapshot["serverTimes"].values():
+                try:
+                    start = datetime.fromisoformat(timing["startAt"].replace("Z", "+00:00"))
+                    end = datetime.fromisoformat(timing["endAt"].replace("Z", "+00:00"))
+                except (AttributeError, KeyError, TypeError, ValueError):
+                    continue
+                if start <= now_utc <= end:
+                    live_version_candidates.append(snapshot["version"])
+                    break
+            continue
+        if snapshot.get("snapshotType") != "current":
             continue
         try:
             start = datetime.fromisoformat(snapshot["startAt"].replace("Z", "+00:00"))
