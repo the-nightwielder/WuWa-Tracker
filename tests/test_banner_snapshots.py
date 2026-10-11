@@ -26,24 +26,26 @@ GAME8_OVERVIEW_HTML = """
 <table>
   <tr><td>Character Banners</td><td>Featured Characters</td></tr>
   <tr><td>5★ Limited Rate-Up:</td><td>
-    <a href="/games/Wuthering-Waves/archives/hsin"><img alt="Wuthering Waves - Hsin"/>Hsin</a>
-    <a href="/games/Wuthering-Waves/archives/iuno"><img alt="Wuthering Waves - Iuno"/>Iuno</a>
-    <a href="/games/Wuthering-Waves/archives/chisa"><img alt="Wuthering Waves - Chisa"/>Chisa</a>
+    <a href="/games/Wuthering-Waves/archives/hsin"><img alt="Hsin Banner - Scarlet Lily"/>Hsin Banner</a>
+    <a href="/games/Wuthering-Waves/archives/iuno"><img alt="Iuno Banner - Jade Woven"/>Iuno Banner</a>
+    <a href="/games/Wuthering-Waves/archives/chisa"><img alt="Chisa Banner - Ulterior Motive"/>Chisa Banner</a>
     4★ Rate-Up: <a href="/games/Wuthering-Waves/archives/buling">Buling</a>
   </td></tr>
 </table>
 <h2>Next Upcoming Banners in Wuthering Waves</h2>
 <h3>Suoming with Multiple Reruns</h3>
 <table>
-  <tr><td>Phase 2 Banners</td><td>(October 22, 2026 - November 11, 2026)</td></tr>
-  <tr><td>Character Banners</td><td>Featured Characters</td></tr>
-  <tr><td>5★ Limited Rate-Up:</td><td>
-    <a href="/games/Wuthering-Waves/archives/suoming"><img alt="Wuthering Waves - Suoming"/>Suoming</a>
-    <a href="/games/Wuthering-Waves/archives/lynae"><img alt="Wuthering Waves - Lynae"/>Lynae</a>
-    <a href="/games/Wuthering-Waves/archives/lucilla"><img alt="Wuthering Waves - Lucilla"/>Lucilla</a>
-    4★ Rate-Up: <a href="/games/Wuthering-Waves/archives/taoqi">Taoqi</a>
-  </td></tr>
+  <tr><td>Phase 2 Banners (October 22, 2026 - November 11, 2026)</td></tr>
+  <tr>
+    <td><a href="/games/Wuthering-Waves/archives/suoming"><img alt="Suoming Banner - Nine Deaths, One Unbent Heart"/>Suoming Banner</a></td>
+    <td><a href="/games/Wuthering-Waves/archives/lynae"><img alt="Lynae Banner - Undefined Spectrum"/>Lynae Rerun Banner</a></td>
+    <td><a href="/games/Wuthering-Waves/archives/lucilla"><img alt="Lucilla Banner - Tomorrow in the Frame"/>Lucilla Rerun Banner</a></td>
+  </tr>
 </table>
+<h3>Signature Weapons Also Available</h3>
+<table><tr><td><a href="/games/Wuthering-Waves/archives/unspoken-rue">Unspoken Rue Banner</a></td>
+<td><a href="/games/Wuthering-Waves/archives/spectrum-blaster">Spectrum Blaster Banner</a></td>
+<td><a href="/games/Wuthering-Waves/archives/freeze-frame">Freeze Frame Banner</a></td></tr></table>
 """
 
 
