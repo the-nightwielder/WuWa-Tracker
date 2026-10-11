@@ -302,7 +302,7 @@ private data class IntelGroup(val title:String,val status:String,val emptyMessag
     val scheduleRange=listOfNotNull(startAt?.let{formatBannerTime(it,server,serverTiming!=null)},endAt?.let{formatBannerTime(it,server,serverTiming!=null)}).let{dates->if(dates.size==2)"${dates[0]} – ${dates[1]}" else dates.firstOrNull().orEmpty()}
     val scheduleSuffix=if(serverTiming!=null)" (${server.label} server time)" else ""
     val missingScheduleLabel=if(b.serverTimes.isEmpty())"Dates not provided by source" else "No schedule for ${server.label} server"
-    val names=b.title.split(Regex("\\s*,\\s*|\\s+and\\s+" )).map{it.trim()}.filter{it.isNotBlank()}.distinctBy{it.lowercase(Locale.ROOT)}.take(5)
+    val names=b.title.split(Regex("\\s*,\\s*|\\s+and\\s+" )).map{it.trim()}.filter{it.isNotBlank()}.distinctBy{it.lowercase(Locale.ROOT)}.take(3)
     val feedWeapons=b.weaponClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map{it.trim()}?.filter{it.isNotBlank()}?.distinctBy{it.lowercase(Locale.ROOT)}.orEmpty()
     val timelineFallback=if(b.version=="3.7")mapOf("hsin" to "Blooming Jadehaven","chisa" to "Kumokiri","iuno" to "Moongazer’s Sigil","suoming" to "Unspoken Rue","lynae" to "Spectrum Blaster","lucilla" to "Freeze Frame")else emptyMap()
     val mappedFallback=names.mapNotNull{timelineFallback[it.lowercase(Locale.ROOT)]}
