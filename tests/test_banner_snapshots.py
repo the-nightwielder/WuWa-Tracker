@@ -64,6 +64,7 @@ class Game8ScheduleParsingTest(unittest.TestCase):
         self.assertEqual({"AMERICA", "EUROPE", "ASIA", "HMT", "SEA"}, set(current["serverTimes"]))
         self.assertEqual("2026-10-22T01:36:11.579960Z", current["serverTimes"]["SEA"]["endAt"])
         self.assertEqual("2026-09-30T01:36:11.579960Z", current["serverTimes"]["SEA"]["startAt"])
+        self.assertNotEqual(current["serverTimes"]["AMERICA"], current["serverTimes"]["SEA"])
         self.assertEqual(current["serverTimes"]["HMT"], current["serverTimes"]["SEA"])
         self.assertEqual(current["serverTimes"]["SEA"]["endAt"], upcoming["serverTimes"]["SEA"]["startAt"])
         self.assertEqual("2026-11-11T01:36:11.579960Z", upcoming["serverTimes"]["SEA"]["endAt"])
@@ -127,6 +128,74 @@ class Game8ScheduleParsingTest(unittest.TestCase):
         self.assertEqual({"AMERICA", "EUROPE", "ASIA", "HMT", "SEA"}, set(snapshots[0]["serverTimes"]))
         self.assertEqual(snapshots[0]["serverTimes"]["HMT"], snapshots[0]["serverTimes"]["SEA"])
         self.assertEqual(snapshots[0]["serverTimes"]["SEA"]["endAt"], snapshots[1]["serverTimes"]["SEA"]["startAt"])
+
+    def test_game8_times_attach_to_wuwabuild_rows_by_unique_version_phase_and_status(self):
+        times = {server: {"startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z"}
+                 for server in ("AMERICA", "EUROPE", "ASIA", "HMT", "SEA")}
+        wuwabuild = {
+            "snapshotType": "wuwabuild", "title": "Hsin, Chisa, Iuno", "version": "3.7", "phase": 1,
+            "scheduleStatus": "CURRENT", "sourceLabel": "WuWaBuild banner schedule",
+            "sourceUrls": ["https://www.wuwabuild.com/banners"],
+            "startAt": "2026-09-30T00:00:00Z", "endAt": "2026-10-22T23:59:59Z",
+        }
+        game8 = {
+            "snapshotType": "game8", "title": "Hsin, Chisa, Iuno", "version": "3.7", "phase": 1,
+            "scheduleStatus": "CURRENT", "sourceLabel": "Game8 Banner Schedule",
+            "sourceUrls": ["https://game8.co/current"], "serverTimes": times,
+            "startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z",
+        }
+
+        _harmonize_prydwen_rows([wuwabuild, game8])
+
+        self.assertEqual(times, wuwabuild["serverTimes"])
+        self.assertEqual(game8["startAt"], wuwabuild["startAt"])
+        self.assertEqual(game8["endAt"], wuwabuild["endAt"])
+        self.assertIn("Game8", wuwabuild["sourceLabel"])
+        self.assertEqual(["https://www.wuwabuild.com/banners", "https://game8.co/current"], wuwabuild["sourceUrls"])
+
+    def test_game8_times_attach_to_prydwen_row_when_roster_differs_but_phase_is_unique(self):
+        times = {server: {"startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z"}
+                 for server in ("AMERICA", "EUROPE", "ASIA", "HMT", "SEA")}
+        game8 = {
+            "snapshotType": "game8", "title": "Hsin, Chisa, Iuno", "version": "3.7", "phase": 1,
+            "scheduleStatus": "CURRENT", "sourceLabel": "Game8 Banner Schedule",
+            "sourceUrls": ["https://game8.co/current"], "confidence": 0.9, "serverTimes": times,
+            "startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z",
+        }
+        prydwen = {
+            "snapshotType": "prydwen", "title": "Hsin, Chisa", "version": "3.7", "phase": 1,
+            "scheduleStatus": "CURRENT", "sourceLabel": "Prydwen Banner Overview",
+            "sourceUrls": ["https://www.prydwen.gg/wuthering-waves/banners"], "confidence": 0.9,
+        }
+
+        _harmonize_prydwen_rows([game8, prydwen])
+
+        self.assertEqual(times, prydwen["serverTimes"])
+        self.assertEqual("2026-09-30T01:00:00Z", prydwen["startAt"])
+        self.assertEqual("2026-10-22T01:00:00Z", prydwen["endAt"])
+
+    def test_ambiguous_game8_phase_times_are_not_guessed(self):
+        times = {server: {"startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z"}
+                 for server in ("AMERICA", "EUROPE", "ASIA", "HMT", "SEA")}
+        game8_rows = [{
+            "snapshotType": "game8", "title": title, "version": "3.7", "phase": 1,
+            "scheduleStatus": "CURRENT", "sourceLabel": "Game8 Banner Schedule",
+            "sourceUrls": ["https://game8.co/" + title], "confidence": 0.9, "serverTimes": times,
+            "startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z",
+        } for title in ("Other, Names, Here", "Different, Names, Here")]
+        wuwabuild = {
+            "snapshotType": "wuwabuild", "title": "Hsin, Chisa, Iuno", "version": "3.7", "phase": 1,
+            "scheduleStatus": "CURRENT", "sourceLabel": "WuWaBuild banner schedule", "sourceUrls": [],
+        }
+        prydwen = {
+            "snapshotType": "prydwen", "title": "Hsin, Chisa", "version": "3.7", "phase": 1,
+            "scheduleStatus": "CURRENT", "sourceLabel": "Prydwen Banner Overview",
+            "sourceUrls": ["https://www.prydwen.gg/wuthering-waves/banners"], "confidence": 0.9,
+        }
+
+        _harmonize_prydwen_rows([*game8_rows, wuwabuild, prydwen])
+
+        self.assertFalse(prydwen.get("serverTimes"))
 
     def test_overview_is_rejected_cleanly_if_any_server_timing_is_missing(self):
         html = GAME8_OVERVIEW_HTML.replace(
