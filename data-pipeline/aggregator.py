@@ -503,14 +503,14 @@ GAME8_SERVER_ROWS = {
 }
 GAME8_DATE_TIME_RE = re.compile(
     r"\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
     r"\s+\d{1,2},?\s+20\d{2})\s*(?:at\s*)?(\d{1,2}(?::\d{2})?\s*[AP]M)\b", re.I)
 GAME8_DATE_RANGE_RE = re.compile(
     r"\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
     r"\s+\d{1,2},?\s+20\d{2})\s*(?:to|[-–—])\s*"
     r"((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
     r"\s+\d{1,2},?\s+20\d{2})", re.I)
 GAME8_COUNTDOWN_RE = re.compile(
     r"(\d+)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b", re.I)
@@ -518,6 +518,7 @@ GAME8_COUNTDOWN_RE = re.compile(
 
 def _game8_parse_date(value):
     value = re.sub(r",(?=\s*20\d{2})", "", value)
+    value = re.sub(r"\b(Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.(?=\s)", r"\1", value, flags=re.I)
     value = re.sub(r"\s+", " ", value).strip()
     for date_format in ("%B %d %Y", "%b %d %Y"):
         try:
@@ -619,7 +620,8 @@ def _game8_server_times(soup, now=None, calendar_text=None):
     combined_hmt_sea = None
     page_text = clean_text(soup.get_text(" ", strip=True))
     page_date_span = _game8_date_span(calendar_text or page_text)
-    for row in soup.find_all("tr"):
+    rows = soup.find_all("tr")
+    for row_index, row in enumerate(rows):
         cells = [clean_text(cell.get_text(" ", strip=True)) for cell in row.find_all(["td", "th"])]
         if len(cells) < 2:
             continue
@@ -635,7 +637,18 @@ def _game8_server_times(soup, now=None, calendar_text=None):
         if offset_match:
             minutes = int(offset_match.group(2)) * 60 + int(offset_match.group(3) or 0)
             offset = (1 if offset_match.group(1) == "+" else -1) * minutes / 60
-        matches = list(GAME8_DATE_TIME_RE.finditer(" ".join(cells[1:])))
+        # Some Game8 tables put the region in one row, then show start and end
+        # as separate date rows below it. Collect until the next region label.
+        timing_cells = list(cells[1:])
+        for following in rows[row_index + 1:]:
+            following_cells = [clean_text(cell.get_text(" ", strip=True)) for cell in following.find_all(["td", "th"])]
+            if not following_cells:
+                continue
+            following_region = " ".join(following_cells[:2]).lower()
+            if any(re.search(rf"\b{name}\b", following_region) for name in GAME8_SERVER_ROWS):
+                break
+            timing_cells.extend(following_cells)
+        matches = list(GAME8_DATE_TIME_RE.finditer(" ".join(timing_cells)))
         values = [_game8_datetime(match, offset) for match in matches]
         values = [value for value in values if value]
         if len(values) >= 2:
@@ -972,15 +985,21 @@ def _remove_stale_prydwen_rows(snapshots, live_version):
     )]
 
 
-def _harmonize_prydwen_rows(snapshots):
-    """Use Prydwen lifecycle labels with Game8's phase names and regional times."""
+def _harmonize_prydwen_rows(snapshots, live_version=None):
+    """Use schedule sources for featured 5-star names and Game8 for regional times."""
     schedules = [row for row in snapshots if row.get("snapshotType") == "game8" and row.get("serverTimes")]
+    name_sources = [row for row in snapshots if row.get("snapshotType") in {"game8", "wuwabuild"}]
     for row in snapshots:
-        if row.get("snapshotType") != "prydwen" or row.get("scheduleStatus") == "TEASED":
+        if row.get("snapshotType") != "prydwen":
+            continue
+        if row.get("scheduleStatus") == "TEASED":
+            if not row.get("version") and live_version:
+                major, minor = map(int, live_version.split("."))
+                row["version"] = f"{major}.{minor + 1}"
             continue
         names = {name.strip().casefold() for name in re.split(r",|\band\b", row.get("title", "")) if name.strip()}
-        candidates = [candidate for candidate in schedules
-                      if candidate.get("scheduleStatus") == row.get("scheduleStatus")
+        candidates = [candidate for candidate in name_sources
+                      if (candidate.get("snapshotType") == "wuwabuild" or candidate.get("scheduleStatus") == row.get("scheduleStatus"))
                       and candidate.get("version") == row.get("version")
                       and candidate.get("phase") == row.get("phase")]
         best = max(candidates, key=lambda candidate: len(names & {
@@ -991,10 +1010,31 @@ def _harmonize_prydwen_rows(snapshots):
         matched = names & {name.strip().casefold() for name in re.split(r",|\band\b", best.get("title", "")) if name.strip()}
         if not matched:
             continue
-        row.update({key: best[key] for key in ("title", "version", "phase", "startAt", "endAt", "serverTimes", "timingBasis") if key in best})
-        row["sourceLabel"] = "Game8 Banner Schedule + Prydwen Banner Overview"
+        row["title"] = best["title"]
+        row["resonatorImages"] = best.get("resonatorImages", row.get("resonatorImages", {}))
+        row["sourceLabel"] = f"{best.get('sourceLabel', 'Community banner schedule')} + Prydwen Banner Overview"
         row["sourceUrls"] = list(dict.fromkeys(best.get("sourceUrls", []) + row.get("sourceUrls", [])))
         row["confidence"] = min(best.get("confidence", 0.9), row.get("confidence", 0.9))
+        timed = next((candidate for candidate in schedules
+                      if candidate.get("scheduleStatus") == row.get("scheduleStatus")
+                      and candidate.get("version") == best.get("version")
+                      and candidate.get("phase") == best.get("phase")
+                      and names & {n.strip().casefold() for n in re.split(r",|\band\b", candidate.get("title", "")) if n.strip()}), None)
+        if timed:
+            row.update({key: timed[key] for key in ("version", "phase", "startAt", "endAt", "serverTimes", "timingBasis") if key in timed})
+            row["sourceLabel"] = "Game8 Banner Schedule + Prydwen Banner Overview"
+            row["sourceUrls"] = list(dict.fromkeys(timed.get("sourceUrls", []) + row.get("sourceUrls", [])))
+            row["confidence"] = min(timed.get("confidence", 0.9), row.get("confidence", 0.9))
+        else:
+            row["version"] = best.get("version")
+        if row.get("scheduleStatus") == "UPCOMING" and row.get("phase") is None and not row.get("serverTimes"):
+            # An unscheduled, phase-less Prydwen expectation is a tease. Its
+            # patch heading can describe the live/transition patch, so target
+            # the next version instead of presenting that heading as a schedule.
+            row["scheduleStatus"] = "TEASED"
+            if live_version:
+                major, minor = map(int, live_version.split("."))
+                row["version"] = f"{major}.{minor + 1}"
     return snapshots
 
 
@@ -1023,10 +1063,11 @@ def prydwen_banner_snapshot(soup, text, url, now):
         version_matches = list(VERSION_RE.finditer(label))
         patch_matches = list(re.finditer(r"\bpatch\s+(\d+\.\d+)\b", label, re.I))
         version_values = [match.group(1) for match in version_matches] + [match.group(1) for match in patch_matches]
-        version_value = max(version_values, key=lambda value: tuple(map(int, value.split(".")))) if version_values else None
+        version_values = list(dict.fromkeys(version_values))
+        version_value = version_values[0] if len(version_values) == 1 else None
         phase_match = re.search(r"phase\s*(?:([12])|([iv]+))", low)
         phase = int(phase_match.group(1)) if phase_match and phase_match.group(1) else (2 if phase_match and phase_match.group(2) == "ii" else 1 if phase_match and phase_match.group(2) == "i" else None)
-        if not section_status or (not version_value and section_status != "TEASED"):
+        if not section_status or (not version_value and section_status != "TEASED" and not (section_status == "UPCOMING" and "expected banner" in low)):
             continue
         # Restrict a record to the content after its heading and before the
         # next peer/parent heading. Never crawl the remainder of the page.
@@ -1119,7 +1160,7 @@ def main():
             live_version_candidates.append(snapshot["version"])
     live_version = max(live_version_candidates, key=lambda value: tuple(map(int, value.split(".")))) if live_version_candidates else None
     snapshots = _remove_stale_prydwen_rows(snapshots, live_version)
-    snapshots = _harmonize_prydwen_rows(snapshots)
+    snapshots = _harmonize_prydwen_rows(snapshots, live_version)
     current_version = live_version
     if current_version:
         major, minor = map(int, current_version.split("."))
