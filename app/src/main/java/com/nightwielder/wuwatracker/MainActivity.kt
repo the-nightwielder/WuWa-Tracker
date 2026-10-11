@@ -75,11 +75,18 @@ enum class Server(val label: String, val zone: String) {
     AMERICA("America", "America/New_York"), EUROPE("Europe", "Europe/London"),
     ASIA("Asia", "Asia/Shanghai"), SEA("SEA", "Asia/Singapore"), HMT("HMT", "Asia/Hong_Kong")
 }
+private val Server.bannerZone: ZoneId get() = ZoneOffset.of(when (this) {
+    Server.AMERICA -> "-05:00"
+    Server.EUROPE -> "+01:00"
+    Server.ASIA -> "+09:00"
+    Server.SEA, Server.HMT -> "+08:00"
+})
 
 data class TrackerEvent(val title: String, val type: String, val start: Instant, val end: Instant?, val note: String, val sourceUrl: String = "", val status: String = "COMMUNITY", val confidence: Double = 0.0)
 data class FeedItem(val title: String, val url: String, val summary: String, val status: String, val source: String, val publishedAt: String, val confidence: Double, val targetVersion: String? = null)
 data class VersionIntel(val version: String, val status: String, val confidence: Double, val sourceUrls: List<String>)
-data class BannerIntel(val title: String, val version: String?, val phase: Int?, val startAt: Instant?, val endAt: Instant?, val status: String, val confidence: Double, val sourceUrls: List<String>, val sourceLabel: String = "Website", val weaponClaim: String? = null, val resonatorImages: Map<String,String> = emptyMap(), val weaponImages: Map<String,String> = emptyMap())
+data class BannerServerTiming(val startAt: Instant?, val endAt: Instant?)
+data class BannerIntel(val title: String, val version: String?, val phase: Int?, val startAt: Instant?, val endAt: Instant?, val status: String, val confidence: Double, val sourceUrls: List<String>, val sourceLabel: String = "Website", val weaponClaim: String? = null, val resonatorImages: Map<String,String> = emptyMap(), val weaponImages: Map<String,String> = emptyMap(), val serverTimes: Map<String, BannerServerTiming> = emptyMap(), val scheduleStatus: String? = null)
 data class ResonatorIntel(val name: String, val version: String?, val phase: Int?, val element: String?, val weapon: String?, val status: String, val confidence: Double, val sourceUrls: List<String>, val sourceLabel: String = "Website", val weaponClaim: String? = null)
 
 data class UiState(
@@ -230,13 +237,22 @@ private fun WuWaTrackerRoot() {
     val feed=state.feedItems.filter{it.relevant(version,now)}.sortedByDescending{runCatching{Instant.parse(it.publishedAt)}.getOrDefault(Instant.EPOCH)}
     val banners=state.banners.filter{it.relevant(version,now)}
     fun oneCardPerPhase(rows:List<BannerIntel>)=rows.groupBy{"${it.version.orEmpty()}|${it.phase ?: 0}"}.values.mapNotNull{phaseRows->phaseRows.maxByOrNull{(if(it.weaponClaim.isNullOrBlank())0 else 100+it.weaponClaim.length)+(it.weaponImages.size*10)+(it.resonatorImages.size*5)+(if(it.sourceLabel.contains("WuWaBuild",true))25 else 0)}}
-    val active=oneCardPerPhase(banners.filter{it.startAt!=null&&it.startAt<=now&&(it.endAt==null||it.endAt>now)}).sortedBy{it.phase}
-    val upcoming=oneCardPerPhase(banners.filter{it.startAt?.isAfter(now)==true}).sortedBy{it.startAt}
+    fun timing(b:BannerIntel)=b.serverTimes[state.server.name] ?: BannerServerTiming(b.startAt,b.endAt)
+    val active=oneCardPerPhase(banners.filter{val t=timing(it);t.startAt!=null&&t.startAt<=now&&(t.endAt==null||t.endAt>now)}).sortedBy{it.phase}
+    val upcoming=oneCardPerPhase(banners.filter{timing(it).startAt?.isAfter(now)==true}).sortedBy{timing(it).startAt}
+    val teased=banners.filter{it.scheduleStatus.equals("TEASED",true)&&it.serverTimes.isEmpty()&&timing(it).startAt==null}.distinctBy{it.title.lowercase(Locale.ROOT)+it.version.orEmpty()}
     fun cacheEnd(b:BannerIntel):Instant? {
-        b.endAt?.let{return it}
-        val laterPhase=state.banners.asSequence().filter{it.version==b.version&&it.phase!=null&&b.phase!=null&&it.phase>b.phase&&it.startAt!=null&&(b.startAt==null||it.startAt.isAfter(b.startAt))}.mapNotNull{it.startAt}.minOrNull()
+        timing(b).endAt?.let{return it}
+        val baseStart=timing(b).startAt
+        val laterPhase=state.banners.asSequence().filter{candidate->
+            val candidateStart=timing(candidate).startAt
+            candidate.version==b.version&&candidate.phase!=null&&b.phase!=null&&candidate.phase>b.phase&&candidateStart!=null&&(baseStart==null||candidateStart.isAfter(baseStart))
+        }.mapNotNull{timing(it).startAt}.minOrNull()
         if(laterPhase!=null)return laterPhase
-        return b.version?.let{version->state.banners.asSequence().filter{it.version!=null&&compareVersion(it.version,version)>0&&it.startAt!=null&&(b.startAt==null||it.startAt.isAfter(b.startAt))}.mapNotNull{it.startAt}.minOrNull()}
+        return b.version?.let{version->state.banners.asSequence().filter{candidate->
+            val candidateStart=timing(candidate).startAt
+            candidate.version!=null&&compareVersion(candidate.version,version)>0&&candidateStart!=null&&(baseStart==null||candidateStart.isAfter(baseStart))
+        }.mapNotNull{timing(it).startAt}.minOrNull()}
     }
     LaunchedEffect(state.banners){withContext(Dispatchers.IO){pruneArtworkCache(appContext)}}
     ArtworkScreen(modifier,R.drawable.bg_intel){LazyColumn(Modifier.fillMaxSize().padding(horizontal=16.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
@@ -246,21 +262,25 @@ private fun WuWaTrackerRoot() {
         item{Text("Current version · "+version,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold,color=Color(0xFFFFD994))}
         item{Text("Active Resonator / Weapon Banners",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,color=Color(0xFFE7DAFF))}
         if(active.isEmpty()) item{InfoCard("Live schedule","Banner details will appear here when the public feed refreshes.","No external site is needed to view the schedule.")}
-        items(active){b->BannerOverviewCard(b,true,cacheEnd(b)?.toEpochMilli()?:Long.MAX_VALUE)}
+        items(active){b->BannerOverviewCard(b,true,state.server,cacheEnd(b)?.toEpochMilli()?:Long.MAX_VALUE)}
         item{Text("Upcoming Resonator / Weapon Banners",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,color=Color(0xFFBFE8E2))}
         if(upcoming.isEmpty()) item{InfoCard("Upcoming schedule","No upcoming schedule details are available in the feed right now.","Check again after the next feed refresh.")}
-        items(upcoming){b->BannerOverviewCard(b,false,cacheEnd(b)?.toEpochMilli()?:Long.MAX_VALUE)}
+        items(upcoming){b->BannerOverviewCard(b,false,state.server,cacheEnd(b)?.toEpochMilli()?:Long.MAX_VALUE)}
+        if(teased.isNotEmpty()){
+            item{Text("Teased Resonator Banners",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,color=Color(0xFFE7DAFF))}
+            items(teased){b->BannerOverviewCard(b,false,state.server,Long.MAX_VALUE)}
+        }
         groups.forEach{g->
             val candidates=feed.filter{it.status.equals(g.status,true)&&(g.status!="LEAK"||it.isNextVersionLeak(version))}
             val rows=(if(g.status=="LEAK")candidates.distinctBy{it.leakDedupKey(version,state.resonators)}else candidates).take(25)
             val shownArticleUrls=rows.map{it.url}.toSet()
-            val gb=banners.filter{it.status.equals(g.status,true)&&(g.status!="LEAK"||(it.version?.let{v->compareVersion(v,version)>0}==true&&it.sourceUrls.none{url->url in shownArticleUrls}))}.take(8)
+            val gb=banners.filter{it.scheduleStatus!="TEASED"&&it.status.equals(g.status,true)&&(g.status!="LEAK"||(it.version?.let{v->compareVersion(v,version)>0}==true&&it.sourceUrls.none{url->url in shownArticleUrls}))}.take(8)
             val gr=state.resonators.filter{it.status.equals(g.status,true)&&if(g.status=="LEAK")it.version?.let{v->compareVersion(v,version)>0}==true&&it.sourceUrls.none{url->url in shownArticleUrls} else (it.version?.let{v->compareVersion(v,version)>=0}==true || feed.any{n->n.title.contains(it.name,true)||n.summary.contains(it.name,true)})}.take(8)
             val closed=g.status in state.collapsedSections
             item(key="section-"+g.status){SectionHeader(g,closed){onToggle(g.status)}}
             if(!closed){if(rows.isEmpty()&&gb.isEmpty()&&gr.isEmpty())item{EmptyIntelCard(g.title,g.emptyMessage)}
                 items(rows,key={"news-"+g.status+"-"+it.url}){FeedCard(it)}
-                items(gb,key={"banner-"+g.status+"-"+it.title}){b->IntelCard(b.title,listOfNotNull(b.version?.let{"Version "+it},b.phase?.let{phaseLabel(it)},b.status,"Source: "+b.sourceLabel).joinToString(" · "),b.sourceUrls.firstOrNull())}
+                items(gb,key={"banner-"+g.status+"-"+it.title}){b->IntelCard(b.title,listOfNotNull(b.version?.let{"Version "+it},b.phase?.let{phaseLabel(it)},b.scheduleStatus?.let{"Banner status: "+it.lowercase(Locale.ROOT).replaceFirstChar(Char::uppercase)},b.status,"Source: "+b.sourceLabel).joinToString(" · "),b.sourceUrls.firstOrNull())}
                 items(gr,key={"res-"+g.status+"-"+it.name}){r->IntelCard(r.name,listOfNotNull(r.version?.let{"Version "+it},r.phase?.let{phaseLabel(it)},r.element,r.weapon,g.status,"Source: "+r.sourceLabel).joinToString(" · "),r.sourceUrls.firstOrNull())}
             }
         }
@@ -269,8 +289,13 @@ private fun WuWaTrackerRoot() {
 private data class IntelGroup(val title:String,val status:String,val emptyMessage:String)
 @Composable private fun SectionHeader(g:IntelGroup,closed:Boolean,toggle:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=toggle),colors=CardDefaults.cardColors(containerColor=when(g.status){"OFFICIAL"->Color(0xFF263746);"LEAK"->Color(0xFF482D3C);else->Color(0xFF303044)})){Row(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(g.title,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold,color=Color.White);Text(if(closed)"Tap to expand" else if(g.status=="LEAK")"LEAKS" else g.status,style=MaterialTheme.typography.labelSmall,color=Color.LightGray)};ChevronControl(closed)}}}
 @Composable private fun ChevronControl(collapsed:Boolean){Box(Modifier.size(44.dp),contentAlignment=Alignment.Center){Canvas(Modifier.size(22.dp)){val stroke=2.5.dp.toPx();if(collapsed){drawLine(Color.White,androidx.compose.ui.geometry.Offset(size.width*.22f,size.height*.40f),androidx.compose.ui.geometry.Offset(size.width*.50f,size.height*.68f),strokeWidth=stroke,cap=StrokeCap.Round);drawLine(Color.White,androidx.compose.ui.geometry.Offset(size.width*.50f,size.height*.68f),androidx.compose.ui.geometry.Offset(size.width*.78f,size.height*.40f),strokeWidth=stroke,cap=StrokeCap.Round)}else{drawLine(Color.White,androidx.compose.ui.geometry.Offset(size.width*.22f,size.height*.60f),androidx.compose.ui.geometry.Offset(size.width*.50f,size.height*.32f),strokeWidth=stroke,cap=StrokeCap.Round);drawLine(Color.White,androidx.compose.ui.geometry.Offset(size.width*.50f,size.height*.32f),androidx.compose.ui.geometry.Offset(size.width*.78f,size.height*.60f),strokeWidth=stroke,cap=StrokeCap.Round)}}}}
-@Composable private fun BannerOverviewCard(b:BannerIntel,current:Boolean,cacheExpiresAt:Long){
+@Composable private fun BannerOverviewCard(b:BannerIntel,current:Boolean,server:Server,cacheExpiresAt:Long){
     var expanded by remember(b.title,current){mutableStateOf(false)}
+    val serverTiming=b.serverTimes[server.name]
+    val startAt=serverTiming?.startAt ?: b.startAt
+    val endAt=serverTiming?.endAt ?: b.endAt
+    val scheduleRange=listOfNotNull(startAt?.let{formatBannerTime(it,server,serverTiming!=null)},endAt?.let{formatBannerTime(it,server,serverTiming!=null)}).let{dates->if(dates.size==2)"${dates[0]} – ${dates[1]}" else dates.firstOrNull().orEmpty()}
+    val scheduleSuffix=if(serverTiming!=null)" (${server.label} server time)" else ""
     val names=b.title.split(Regex("\\s*,\\s*|\\s+and\\s+" )).map{it.trim()}.filter{it.isNotBlank()}.distinctBy{it.lowercase(Locale.ROOT)}.take(3)
     val feedWeapons=b.weaponClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map{it.trim()}?.filter{it.isNotBlank()}?.distinctBy{it.lowercase(Locale.ROOT)}.orEmpty()
     val timelineFallback=if(b.version=="3.7")mapOf("hsin" to "Blooming Jadehaven","chisa" to "Kumokiri","iuno" to "Moongazer’s Sigil","suoming" to "Unspoken Rue","lynae" to "Spectrum Blaster","lucilla" to "Freeze Frame")else emptyMap()
@@ -278,15 +303,15 @@ private data class IntelGroup(val title:String,val status:String,val emptyMessag
     val usedFallback=mappedFallback.any{fallback->feedWeapons.none{it.equals(fallback,true)}}
     val weapons=(feedWeapons+mappedFallback).distinctBy{it.lowercase(Locale.ROOT)}.take(3)
     Card(Modifier.fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=if(current)Color(0xFF292438) else Color(0xFF26323C))){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
-        Row(Modifier.fillMaxWidth().clickable{expanded=!expanded},verticalAlignment=Alignment.CenterVertically){val lead=names.firstOrNull().orEmpty();if(!expanded){ResonatorArtwork(lead,b.resonatorImages.artworkFor(lead),cacheExpiresAt);Column(Modifier.weight(1f).padding(start=12.dp)){Text(if(current)"ACTIVE BANNER" else "UPCOMING BANNER",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary);Text(lead.ifBlank{b.title},style=MaterialTheme.typography.titleLarge.copy(fontSize=18.sp),fontWeight=FontWeight.Bold,color=if(current)Color(0xFFFFD994) else Color(0xFFBFE8E2));Text(listOfNotNull(b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)},b.startAt?.let{(if(current)"From " else "Starts ")+dateOnly(it)},b.endAt?.let{"Until "+dateOnly(it)}).joinToString(" · "),style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}else{Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)){Text(if(current)"ACTIVE BANNER DETAILS" else "UPCOMING BANNER DETAILS",style=MaterialTheme.typography.labelLarge,fontWeight=FontWeight.SemiBold,color=if(current)Color(0xFFFFD994) else Color(0xFFBFE8E2));Text(listOfNotNull(b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)},b.startAt?.let{dateOnly(it)},b.endAt?.let{"Until "+dateOnly(it)}).joinToString(" · "),style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}};ChevronControl(!expanded)}
+        Row(Modifier.fillMaxWidth().clickable{expanded=!expanded},verticalAlignment=Alignment.CenterVertically){val lead=names.firstOrNull().orEmpty();if(!expanded){ResonatorArtwork(lead,b.resonatorImages.artworkFor(lead),cacheExpiresAt);Column(Modifier.weight(1f).padding(start=12.dp)){Text(if(b.scheduleStatus.equals("TEASED",true))"TEASED BANNER" else if(current)"ACTIVE BANNER" else "UPCOMING BANNER",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary);Text(lead.ifBlank{b.title},style=MaterialTheme.typography.titleLarge.copy(fontSize=18.sp),fontWeight=FontWeight.Bold,color=if(current)Color(0xFFFFD994) else Color(0xFFBFE8E2));Text(listOfNotNull(b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)},startAt?.let{(if(current)"From " else "Starts ")+formatBannerTime(it,server,serverTiming!=null)},endAt?.let{"Until "+formatBannerTime(it,server,serverTiming!=null)}).joinToString(" · ")+scheduleSuffix,style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}else{Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)){Text(if(b.scheduleStatus.equals("TEASED",true))"TEASED BANNER DETAILS" else if(current)"ACTIVE BANNER DETAILS" else "UPCOMING BANNER DETAILS",style=MaterialTheme.typography.labelLarge,fontWeight=FontWeight.SemiBold,color=if(current)Color(0xFFFFD994) else Color(0xFFBFE8E2));Text(listOfNotNull(b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)},scheduleRange.takeIf{it.isNotBlank()}?.plus(scheduleSuffix)).joinToString(" · "),style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}};ChevronControl(!expanded)}
         if(expanded){
             Text("Resonators",style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold,color=if(current)Color(0xFFFFD994) else Color(0xFFBFE8E2))
             names.forEachIndexed{index,name->
-                Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){ResonatorArtwork(name,b.resonatorImages.artworkFor(name),cacheExpiresAt);Column{Text(name,fontWeight=FontWeight.SemiBold,color=Color.White);Text(listOfNotNull(b.phase?.let{phaseLabel(it)},b.startAt?.let{dateOnly(it)},b.endAt?.let{"until "+dateOnly(it)}).joinToString(" · ").ifBlank{"Dates not provided by source"},style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}
+                Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){ResonatorArtwork(name,b.resonatorImages.artworkFor(name),cacheExpiresAt);Column{Text(name,fontWeight=FontWeight.SemiBold,color=Color.White);Text(listOfNotNull(b.phase?.let{phaseLabel(it)},scheduleRange.takeIf{it.isNotBlank()}?.plus(scheduleSuffix)).joinToString(" · ").ifBlank{"Dates not provided by source"},style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}
             }
             HorizontalDivider()
             Text("Weapons",style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold,color=if(current)Color(0xFFFFD994) else Color(0xFFBFE8E2))
-            if(weapons.isEmpty())Text("Weapon names will appear after the updated schedule feed is published.",style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA)) else weapons.forEachIndexed{index,name->Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){WeaponArtwork(name,b.weaponImages[name],cacheExpiresAt);Column{Text(name,fontWeight=FontWeight.SemiBold,color=Color.White);Text("${b.version?.let{"Version $it · "}.orEmpty()}${b.phase?.let{phaseLabel(it)?.plus(" · ")}.orEmpty()}${b.startAt?.let{dateOnly(it)}?:"Schedule date unavailable"}",style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}}
+            if(weapons.isEmpty())Text("Weapon names will appear after the updated schedule feed is published.",style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA)) else weapons.forEachIndexed{index,name->Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){WeaponArtwork(name,b.weaponImages[name],cacheExpiresAt);Column{Text(name,fontWeight=FontWeight.SemiBold,color=Color.White);Text(listOfNotNull(b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)},scheduleRange.takeIf{it.isNotBlank()}?.plus(scheduleSuffix)).joinToString(" · ").ifBlank{"Schedule dates unavailable"},style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}}
             if(usedFallback || !current)Text("Weapon pairings are community schedule references.",style=MaterialTheme.typography.labelSmall,color=Color.LightGray)
             Text("Verify exact server timing in-game.",style=MaterialTheme.typography.labelSmall,color=Color.LightGray)
         }
@@ -382,8 +407,11 @@ private fun loadArtwork(context:Context,identity:String,url:String,crop:Float,ex
   @Composable private fun RemoteArtwork(url:String?,description:String,expiresAt:Long){val context=androidx.compose.ui.platform.LocalContext.current.applicationContext;var image by remember(url,description,expiresAt){mutableStateOf<ImageBitmap?>(null)};LaunchedEffect(url,description,expiresAt){image=withContext(Dispatchers.IO){val preferred=url?.takeIf(::isFandomArtUrl);val first=preferred?.let{loadArtwork(context,"resonator:${description.trim().lowercase(Locale.ROOT)}",it,.96f,expiresAt,0f)};first?:fandomPageImage(description,"resonator")?.let{loadArtwork(context,"resonator:${description.trim().lowercase(Locale.ROOT)}",it,.96f,expiresAt,0f)}}};if(image!=null)Image(image!!,description,contentScale=ContentScale.Crop,modifier=Modifier.size(68.dp).clip(CircleShape))else ArtworkInitial(description)}
 @Composable private fun SourceLinkCard(title:String,body:String,url:String){Card(Modifier.fillMaxWidth().clickable{openUrl(url)}){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){Text(title,fontWeight=FontWeight.SemiBold);Text(body,style=MaterialTheme.typography.bodySmall);Text("Open source ↗",color=MaterialTheme.colorScheme.primary)}}}
 private fun dateOnly(i:Instant)=DateTimeFormatter.ofPattern("MMM d, yyyy",Locale.getDefault()).withZone(ZoneId.systemDefault()).format(i)
+private fun formatBannerTime(i:Instant,server:Server,usesServerTime:Boolean):String =
+    DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a",Locale.US)
+        .withZone(if(usesServerTime)server.bannerZone else ZoneId.systemDefault()).format(i)
 private fun phaseLabel(phase:Int?):String?=when(phase){1->"Phase I";2->"Phase II";3->"Phase III";4->"Phase IV";else->null}
-private fun BannerIntel.relevant(version:String,now:Instant):Boolean = if(this.version!=null) compareVersion(this.version,version)>=0 else (endAt?.isAfter(now)==true || startAt?.isAfter(now)==true)
+private fun BannerIntel.relevant(version:String,now:Instant):Boolean = if(scheduleStatus.equals("TEASED",true))true else if(this.version!=null) compareVersion(this.version,version)>=0 else (endAt?.isAfter(now)==true || startAt?.isAfter(now)==true)
 private fun FeedItem.isNextVersionLeak(currentVersion:String):Boolean {
     val text=title+" "+summary
     val versionPattern=Regex("(?i)(?:(?:version|ver\\.?|wuthering\\s+waves|wuwa)\\s*|\\bv\\s*)(\\d+\\.\\d+)")
@@ -420,6 +448,16 @@ private fun FeedItem.relevant(version:String,now:Instant):Boolean {
 @Composable private fun SettingsScreen(state: UiState, update: ((UiState) -> UiState) -> Unit, modifier: Modifier) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var serverExpanded by remember { mutableStateOf(false) }; var leadExpanded by remember { mutableStateOf(false) }
+    var exactAlarmAccess by remember { mutableStateOf(hasExactAlarmAccess(context)) }
+    var showExactAlarmPrompt by remember { mutableStateOf(false) }
+    val exactAlarmSettingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        exactAlarmAccess = hasExactAlarmAccess(context)
+        if (exactAlarmAccess && state.reminderEnabled && state.reminderLead == -1) state.customReminderAt?.let(::scheduleCustomReminder)
+    }
+    val onCustomReminderSelected: (Instant) -> Unit = { selected ->
+        update { it.copy(customReminderAt = selected) }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && !hasExactAlarmAccess(context)) showExactAlarmPrompt = true
+    }
     val options = listOf(0 to "At reset", 15 to "15 minutes before", 30 to "30 minutes before", 60 to "1 hour before", -1 to "Custom date & time")
     ArtworkScreen(modifier,R.drawable.bg_settings) {
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -427,14 +465,46 @@ private fun FeedItem.relevant(version:String,now:Instant):Boolean {
         item { ExposedDropdownMenuBox(serverExpanded, { serverExpanded = !serverExpanded }) { OutlinedTextField(state.server.label, {}, readOnly = true, label = { Text("Game Server") }, modifier = Modifier.menuAnchor().fillMaxWidth()); ExposedDropdownMenu(serverExpanded, { serverExpanded = false }) { Server.entries.forEach { s -> DropdownMenuItem(text = { Text(s.label) }, onClick = { update { it.copy(server = s, serverSelected = true) }; serverExpanded = false }) } } } }
         item { Text("Reset timezone: ${ZoneId.of(state.server.zone)}") }
         item { Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Enable reset reminder"); Text("Turn this on to receive a reminder for the daily reset of your selected server.") }; Switch(state.reminderEnabled, { checked -> update { it.copy(reminderEnabled = checked) } }) } }
-        item { ExposedDropdownMenuBox(leadExpanded, { leadExpanded = !leadExpanded }) { OutlinedTextField(options.first { it.first == state.reminderLead }.second, {}, readOnly = true, label = { Text("Reminder Timing") }, modifier = Modifier.menuAnchor().fillMaxWidth()); ExposedDropdownMenu(leadExpanded, { leadExpanded = false }) { options.forEach { (v, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { update { it.copy(reminderLead = v) }; leadExpanded = false; if (v == -1) showCustomReminderPicker(context) { selected -> update { it.copy(customReminderAt = selected) } } }) } } } }
-        if (state.reminderLead == -1) item { TextButton(onClick = { showCustomReminderPicker(context) { selected -> update { it.copy(customReminderAt = selected) } } }) { Text(state.customReminderAt?.let { "Custom reminder: ${DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withZone(ZoneId.systemDefault()).format(it)}" } ?: "Choose reminder date and time") } }
+        item { ExposedDropdownMenuBox(leadExpanded, { leadExpanded = !leadExpanded }) { OutlinedTextField(options.first { it.first == state.reminderLead }.second, {}, readOnly = true, label = { Text("Reminder Timing") }, modifier = Modifier.menuAnchor().fillMaxWidth()); ExposedDropdownMenu(leadExpanded, { leadExpanded = false }) { options.forEach { (v, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { update { it.copy(reminderLead = v) }; leadExpanded = false; if (v == -1) showCustomReminderPicker(context, onCustomReminderSelected) }) } } } }
+        if (state.reminderLead == -1) {
+            item {
+                TextButton(onClick = { showCustomReminderPicker(context, onCustomReminderSelected) }) {
+                    Text(state.customReminderAt?.let {
+                        val next = nextCustomReminderTime(it).atZone(ZoneId.systemDefault())
+                        val date = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(Locale.getDefault()).format(next)
+                        val time = DateTimeFormatter.ofPattern("h:mm a", Locale.US).format(next).uppercase(Locale.ROOT)
+                        "Next custom reminder: $date, $time"
+                    } ?: "Choose reminder date and time")
+                }
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && !exactAlarmAccess) item {
+                Column {
+                    Text("Android may delay this reminder. Allow Alarms & reminders access for delivery closer to the selected time.", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { showExactAlarmPrompt = true }) { Text("Allow exact alarms") }
+                }
+            }
+        }
         item { Text("Intelligence Feed", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color(0xFFFFD994)) }
         item { InfoCard("Live Intelligence", GITHUB_FEED_URL, "Sources include official notices, Reddit leaks, WuWa Banners, GenGamer, u7buy and LDShop. Leaks stay unconfirmed.") }
         item { Text("Security", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color(0xFFBFE8E2)) }
         item { InfoCard("Local-first", "No game login, password, cookies or account tokens are collected.", "Only the configured HTTPS feed is requested by the app.") }
         item { InfoCard("Leak Safety", "Leaks remain clearly marked as unconfirmed.", "Check the linked source before treating a claim as confirmed.") }
     }
+    if (showExactAlarmPrompt) AlertDialog(
+        onDismissRequest = { showExactAlarmPrompt = false },
+        title = { Text("Allow on-time custom reminders?") },
+        text = { Text("Android requires Alarms & reminders access to deliver this custom reminder close to the selected time. If you decline, the reminder will remain enabled but Android may deliver it late.") },
+        confirmButton = {
+            TextButton(onClick = {
+                showExactAlarmPrompt = false
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    val intent = Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).setData(Uri.parse("package:${context.packageName}"))
+                    exactAlarmSettingsLauncher.launch(intent)
+                }
+            }) { Text("Open permission settings") }
+        },
+        dismissButton = { TextButton(onClick = { showExactAlarmPrompt = false }) { Text("Not now") } }
+    )
 }
 
 }
@@ -500,7 +570,7 @@ private fun stateToJson(state: UiState) = JSONObject().apply {
     put("latestVersion", state.version); put("news", JSONArray().apply { state.feedItems.forEach { put(JSONObject().apply { put("title",it.title); put("url",it.url); put("summary",it.summary); put("status",it.status); put("sourceLabel",it.source); put("publishedAt",it.publishedAt); put("confidence",it.confidence); if (it.targetVersion != null) put("targetVersion",it.targetVersion) }) } })
     put("events", JSONArray().apply { state.events.filter { it.start != Instant.EPOCH }.forEach { put(JSONObject().apply { put("title",it.title); put("type",it.type); put("startAt",it.start.toString()); if (it.end != null) put("endAt",it.end.toString()); put("note",it.note); put("sourceUrl",it.sourceUrl); put("status",it.status); put("confidence",it.confidence) }) } })
     put("versions", JSONArray().apply { state.versions.forEach { put(JSONObject().apply { put("version",it.version); put("status",it.status); put("confidence",it.confidence); put("sourceUrls",JSONArray(it.sourceUrls)) }) } })
-    put("banners", JSONArray().apply { state.banners.forEach { put(JSONObject().apply { put("title",it.title); put("version",it.version); put("phase",it.phase); put("startAt",it.startAt?.toString()); put("endAt",it.endAt?.toString()); put("status",it.status); put("confidence",it.confidence); put("sourceLabel",it.sourceLabel); put("weapon",it.weaponClaim); put("resonatorImages",JSONObject(it.resonatorImages)); put("weaponImages",JSONObject(it.weaponImages)); put("sourceUrls",JSONArray(it.sourceUrls)) }) } })
+    put("banners", JSONArray().apply { state.banners.forEach { put(JSONObject().apply { put("title",it.title); put("version",it.version); put("phase",it.phase); put("startAt",it.startAt?.toString()); put("endAt",it.endAt?.toString()); put("status",it.status); put("scheduleStatus",it.scheduleStatus); put("confidence",it.confidence); put("sourceLabel",it.sourceLabel); put("weapon",it.weaponClaim); put("resonatorImages",JSONObject(it.resonatorImages)); put("weaponImages",JSONObject(it.weaponImages)); put("serverTimes",JSONObject().apply{it.serverTimes.forEach{(key,time)->put(key,JSONObject().apply{put("startAt",time.startAt?.toString());put("endAt",time.endAt?.toString())})}}); put("sourceUrls",JSONArray(it.sourceUrls)) }) } })
     put("resonators", JSONArray().apply { state.resonators.forEach { put(JSONObject().apply { put("name",it.name); put("version",it.version); put("phase",it.phase); put("element",it.element); put("weapon",it.weapon); put("status",it.status); put("confidence",it.confidence); put("sourceUrls",JSONArray(it.sourceUrls)) }) } })
 }
 
@@ -518,7 +588,7 @@ private fun parseFeed(raw: String?): FeedResult {
         parseBanners(root.optJSONArray("activeBanners") ?: JSONArray()) +
         parseBanners(root.optJSONArray("upcomingBanners") ?: JSONArray())
     val banners = bannerRows.groupBy { it.title.lowercase(Locale.ROOT) + it.version + it.phase }
-        .values.mapNotNull { rows -> rows.maxByOrNull { (if (it.weaponClaim.isNullOrBlank()) 0 else 10 + it.weaponClaim.length) + it.weaponImages.size * 3 + it.resonatorImages.size } }
+        .values.mapNotNull { rows -> rows.maxByOrNull { (if (it.weaponClaim.isNullOrBlank()) 0 else 10 + it.weaponClaim.length) + it.weaponImages.size * 3 + it.resonatorImages.size + it.serverTimes.size * 100 + (if(it.scheduleStatus.equals("TEASED",true))20 else 0) } }
     return FeedResult(
         parseNews(root.optJSONArray("news") ?: root.optJSONArray("items") ?: JSONArray()),
         parseEvents(root.optJSONArray("events") ?: JSONArray()),
@@ -567,7 +637,9 @@ private fun parseBanners(a: JSONArray): List<BannerIntel> = buildList {
             (o.optString("sourceLabel").takeIf{it.isNotBlank()&&it!="null"} ?: firstEvidenceLabel(o)),
             o.optString("weapon").takeIf { it.isNotBlank() && it != "null" },
             stringMap(o.optJSONObject("resonatorImages")),
-            stringMap(o.optJSONObject("weaponImages"))
+            stringMap(o.optJSONObject("weaponImages")),
+            o.optJSONObject("serverTimes")?.let{times->buildMap{val keys=times.keys();while(keys.hasNext()){val key=keys.next();val value=times.optJSONObject(key)?:continue;put(key,BannerServerTiming(instant(value.optString("startAt")),instant(value.optString("endAt"))))}}}.orEmpty(),
+            o.optString("scheduleStatus").takeIf{it.isNotBlank()&&it!="null"}
         ))
     }
 }
@@ -643,11 +715,20 @@ class FeedSyncWorker(appContext: Context, params: WorkerParameters):CoroutineWor
         }.getOrElse{if(runAttemptCount<3)Result.retry()else Result.failure()} 
     } 
 }
-class BootReceiver:BroadcastReceiver(){override fun onReceive(context:Context,intent:Intent){if(intent.action==Intent.ACTION_BOOT_COMPLETED){val p=goAsync();kotlinx.coroutines.CoroutineScope(Dispatchers.Default).launch{try{val s=loadState(context);if(s.reminderEnabled&&s.reminderLead>=0)scheduleResetAlarm(s.server,s.reminderLead);if(s.reminderEnabled&&s.reminderLead==-1)s.customReminderAt?.takeIf{it.isAfter(Instant.now())}?.let(::scheduleCustomReminder);if(s.feedUrl.isNotBlank())enqueueFeedSync(context)}finally{p.finish()}}}}}
+class BootReceiver:BroadcastReceiver(){override fun onReceive(context:Context,intent:Intent){if(intent.action==Intent.ACTION_BOOT_COMPLETED){val p=goAsync();kotlinx.coroutines.CoroutineScope(Dispatchers.Default).launch{try{val s=loadState(context);if(s.reminderEnabled&&s.reminderLead>=0)scheduleResetAlarm(s.server,s.reminderLead);if(s.reminderEnabled&&s.reminderLead==-1)s.customReminderAt?.let(::scheduleCustomReminder);if(s.feedUrl.isNotBlank())enqueueFeedSync(context)}finally{p.finish()}}}}}
 private fun scheduleResetAlarm(server:Server,leadMinutes:Int=0){if(leadMinutes < 0)return;val context=App.instance?:return;val now=Instant.now();val reset=nextReset(server,now);var trigger=reset.toInstant().minusSeconds(leadMinutes*60L);if(!trigger.isAfter(now)){val followingReset=nextReset(server,reset.toInstant().plusSeconds(1));trigger=followingReset.toInstant().minusSeconds(leadMinutes*60L)};val intent=Intent(context,ResetAlarmReceiver::class.java).putExtra("server",server.name).putExtra("lead",leadMinutes);val pending=PendingIntent.getBroadcast(context,RESET_ALARM,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE);context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,trigger.toEpochMilli(),pending)}
-private fun scheduleCustomReminder(at:Instant){if(!at.isAfter(Instant.now()))return;val context=App.instance?:return;val intent=Intent(context,ResetAlarmReceiver::class.java).putExtra("custom",true);val pending=PendingIntent.getBroadcast(context,RESET_ALARM+1,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE);context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,at.toEpochMilli(),pending)}
+private fun nextCustomReminderTime(anchor:Instant,now:Instant=Instant.now(),zone:ZoneId=ZoneId.systemDefault()):Instant {
+    val selected=anchor.atZone(zone)
+    if(selected.toInstant().isAfter(now))return selected.toInstant()
+    val localNow=now.atZone(zone)
+    var next=localNow.toLocalDate().atTime(selected.toLocalTime()).atZone(zone)
+    if(!next.toInstant().isAfter(now))next=localNow.toLocalDate().plusDays(1).atTime(selected.toLocalTime()).atZone(zone)
+    return next.toInstant()
+}
+private fun hasExactAlarmAccess(context:Context):Boolean = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S || context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
+private fun scheduleCustomReminder(anchor:Instant){val context=App.instance?:return;val trigger=nextCustomReminderTime(anchor);val intent=Intent(context,ResetAlarmReceiver::class.java).putExtra("custom",true).putExtra("custom_at",anchor.toString());val pending=PendingIntent.getBroadcast(context,RESET_ALARM+1,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE);val alarms=context.getSystemService(AlarmManager::class.java);if(hasExactAlarmAccess(context))alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,trigger.toEpochMilli(),pending)else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,trigger.toEpochMilli(),pending)}
 private fun cancelCustomReminder(){val context=App.instance?:return;val intent=Intent(context,ResetAlarmReceiver::class.java).putExtra("custom",true);val pending=PendingIntent.getBroadcast(context,RESET_ALARM+1,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE);context.getSystemService(AlarmManager::class.java).cancel(pending)}
 private fun cancelResetAlarm(){val context=App.instance?:return;val intent=Intent(context,ResetAlarmReceiver::class.java);val pending=PendingIntent.getBroadcast(context,RESET_ALARM,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE);context.getSystemService(AlarmManager::class.java).cancel(pending)}
-class ResetAlarmReceiver:BroadcastReceiver(){override fun onReceive(context:Context,intent:Intent){val custom=intent.getBooleanExtra("custom",false);val server=runCatching{Server.valueOf(intent.getStringExtra("server")?:Server.SEA.name)}.getOrDefault(Server.SEA);val lead=intent.getIntExtra("lead",0);if(ActivityCompat.checkSelfPermission(context,Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED)NotificationManagerCompat.from(context).notify(if(custom)2002 else 2001,NotificationCompat.Builder(context,CHANNEL_ID).setSmallIcon(android.R.drawable.ic_popup_reminder).setContentTitle("Wuthering Waves reminder").setContentText(if(custom)"Your custom reminder is due." else if(lead==0)"${server.label} server daily reset is now live." else "${server.label} server reset is in $lead minutes. Finish your dailies and claim Lunite.").setAutoCancel(true).build());if(!custom)scheduleResetAlarm(server,lead)}}
+class ResetAlarmReceiver:BroadcastReceiver(){override fun onReceive(context:Context,intent:Intent){val custom=intent.getBooleanExtra("custom",false);val server=runCatching{Server.valueOf(intent.getStringExtra("server")?:Server.SEA.name)}.getOrDefault(Server.SEA);val lead=intent.getIntExtra("lead",0);if(ActivityCompat.checkSelfPermission(context,Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED)NotificationManagerCompat.from(context).notify(if(custom)2002 else 2001,NotificationCompat.Builder(context,CHANNEL_ID).setSmallIcon(android.R.drawable.ic_popup_reminder).setContentTitle("Wuthering Waves reminder").setContentText(if(custom)"Your custom reminder is due." else if(lead==0)"${server.label} server daily reset is now live." else "${server.label} server reset is in $lead minutes. Finish your dailies and claim Lunite.").setAutoCancel(true).build());if(custom){val anchor=runCatching{Instant.parse(intent.getStringExtra("custom_at"))}.getOrNull();if(anchor!=null)scheduleCustomReminder(anchor)else{val pending=goAsync();kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch{try{loadState(context).customReminderAt?.let(::scheduleCustomReminder)}finally{pending.finish()}}}}else scheduleResetAlarm(server,lead)}}
 class App:Application(){override fun onCreate(){super.onCreate();instance=this;WorkManager.getInstance(this).enqueueUniquePeriodicWork(FEED_WORK,ExistingPeriodicWorkPolicy.UPDATE,PeriodicWorkRequestBuilder<FeedSyncWorker>(24,TimeUnit.HOURS).setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build())}companion object{var instance:App?=null}}
 private fun openUrl(url:String){val uri=runCatching{Uri.parse(url)}.getOrNull()?:return;if(uri.scheme!="https"||uri.host.isNullOrBlank()||uri.userInfo!=null)return;val ctx=App.instance?:return;runCatching{ctx.startActivity(Intent(Intent.ACTION_VIEW,uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))}}
