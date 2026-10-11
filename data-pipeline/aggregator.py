@@ -799,15 +799,39 @@ def game8_banner_snapshot(source, soup, text, url, now):
     overview = _game8_overview_snapshots(soup, url, now)
     if overview:
         return overview
+    # The evergreen Game8 guide links to character articles using only the
+    # character name (for example, "Hsin"). Requiring "banner" or "rerun" in
+    # the link label/path silently discarded every useful page, which left the
+    # app with Prydwen's mixed 5-star/4-star list and no regional times.
     article_urls = []
-    for anchor in soup.find_all("a", href=True):
-        label = clean_text(anchor.get_text(" ", strip=True) or anchor.get("title", ""))
-        href = urljoin(url, anchor["href"])
-        parts = urlsplit(href)
-        if (parts.hostname not in {"game8.co", "www.game8.co"} or "/games/Wuthering-Waves/archives/" not in parts.path
-                or not re.search(r"banner|convene|rerun", f"{label} {parts.path}", re.I)):
-            continue
-        article_urls.append(href.split("?", 1)[0])
+    headings = soup.find_all("h2")
+    relevant_sections = []
+    for heading in headings:
+        label = clean_text(heading.get_text(" ", strip=True))
+        if re.search(r"\b(?:(?:current|active)|(?:next|upcoming)(?:\s+upcoming)?|upcoming\s+next)\s+(?:character\s+)?banners?\b", label, re.I):
+            relevant_sections.append(heading)
+    for heading in relevant_sections:
+        for anchor in heading.find_all_next("a", href=True):
+            if anchor.find_previous("h2") is not heading:
+                break
+            href = urljoin(url, anchor["href"])
+            parts = urlsplit(href)
+            if (parts.hostname not in {"game8.co", "www.game8.co"}
+                    or not re.search(r"/games/Wuthering-Waves/archives/\d+", parts.path, re.I)):
+                continue
+            article_urls.append(href.split("?", 1)[0])
+    # Some archive layouts omit the section headings. Keep the older keyword
+    # discovery as a bounded fallback for those pages.
+    if not article_urls:
+        for anchor in soup.find_all("a", href=True):
+            label = clean_text(anchor.get_text(" ", strip=True) or anchor.get("title", ""))
+            href = urljoin(url, anchor["href"])
+            parts = urlsplit(href)
+            if (parts.hostname not in {"game8.co", "www.game8.co"}
+                    or not re.search(r"/games/Wuthering-Waves/archives/\d+", parts.path, re.I)
+                    or not re.search(r"banner|convene|rerun", f"{label} {parts.path}", re.I)):
+                continue
+            article_urls.append(href.split("?", 1)[0])
     article_urls = list(dict.fromkeys(article_urls))[:12]
     grouped = {}
     for article_url in article_urls:
