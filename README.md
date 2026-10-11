@@ -70,4 +70,4 @@ No open-source license is currently granted for this repository’s original sou
 2. Build the app using the included Gradle wrapper.
 3. For public distribution, create a properly signed release APK. Never commit the signing key or passwords to the repository.
 
-The project targets Android API 35. The current app version is **1.0.0** (version code **100**).
+The project targets Android API 35. The current app version is **1.2.0** (version code **120**).
