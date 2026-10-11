@@ -289,6 +289,17 @@ class PrydwenBannerParsingTest(unittest.TestCase):
         self.assertNotIn("startAt", prydwen)
         self.assertFalse(prydwen.get("serverTimes"))
 
+    def test_multi_character_phase_less_prydwen_row_stays_upcoming_for_next_version(self):
+        row = {
+            "snapshotType": "prydwen", "title": "Lynae, Lucilla, Suoming", "version": None, "phase": None,
+            "scheduleStatus": "UPCOMING", "sourceLabel": "Prydwen Banner Overview", "sourceUrls": [],
+        }
+
+        _harmonize_prydwen_rows([row], "3.7")
+
+        self.assertEqual("UPCOMING", row["scheduleStatus"])
+        self.assertEqual("3.8", row["version"])
+
     def test_teaser_section_without_character_cards_produces_no_teaser(self):
         soup = BeautifulSoup("""
             <h2>Upcoming Banners</h2>
