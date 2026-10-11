@@ -345,7 +345,15 @@ def fandom_image(name):
 
 
 def banner_snapshot(source):
-    r, body = bounded_get(source["url"])
+    try:
+        r, body = bounded_get(source["url"])
+    except Exception:
+        # Game8's archive index can intermittently block automated requests even
+        # when its configured evergreen banner overview is available.
+        overview_url = source.get("overviewUrl") if source.get("snapshotType") == "game8" else None
+        if not overview_url or overview_url == source["url"]:
+            raise
+        r, body = bounded_get(overview_url)
     soup = BeautifulSoup(body.decode(r.encoding or 'utf-8', errors='replace'), "html.parser")
     image_labels = " ".join(img.get("alt", "") for img in soup.find_all("img"))
     text = clean_text(soup.get_text(" ", strip=True) + " " + image_labels)
@@ -777,7 +785,13 @@ def game8_banner_snapshot(source, soup, text, url, now):
         maintained = max(version_guides, default=(None, None), key=lambda item: item[0])[1]
     guide_url = maintained
     if guide_url and guide_url != url:
-        response, body = _bounded_game8_get(guide_url)
+        try:
+            response, body = _bounded_game8_get(guide_url)
+        except Exception:
+            fallback_url = source.get("overviewUrl")
+            if not fallback_url or fallback_url == guide_url:
+                raise
+            response, body = _bounded_game8_get(fallback_url)
         url = response.url
         soup = BeautifulSoup(body.decode(response.encoding or "utf-8", errors="replace"), "html.parser")
         text = clean_text(soup.get_text(" ", strip=True))
@@ -909,9 +923,9 @@ def _game8_overview_snapshots(soup, url, now):
     """Parse the evergreen Game8 overview's current timer and next phase dates."""
     headings = soup.find_all(["h2", "h3", "h4"])
     current_heading, current_section = _game8_section(
-        headings, lambda label: bool(re.search(r"\bcurrent\s+banners?\b", label, re.I)))
+        headings, lambda label: bool(re.search(r"\b(?:current|active)\s+(?:character\s+)?banners?\b", label, re.I)))
     upcoming_heading, upcoming_section = _game8_section(
-        headings, lambda label: bool(re.search(r"\bnext\s+upcoming\s+banners?\b", label, re.I)))
+        headings, lambda label: bool(re.search(r"\b(?:(?:next|upcoming)(?:\s+upcoming)?|upcoming\s+next)\s+(?:character\s+)?banners?\b", label, re.I)))
     if not current_heading or not upcoming_heading:
         return None
 
@@ -933,12 +947,14 @@ def _game8_overview_snapshots(soup, url, now):
     version = version_match.group(1)
     current_phase_heading = next((node for node in current_section
                                   if node.name in {"h3", "h4"} and re.search(r"\bphase\s*[1i]\b", node.get_text(" ", strip=True), re.I)), None)
-    upcoming_phase_match = re.search(r"\bphase\s*([12])\s+banners?\b", upcoming_text, re.I)
+    upcoming_phase_match = re.search(r"\bphase\s*(1|2|i{1,2})\s+banners?\b", upcoming_text, re.I)
     if not current_phase_heading:
         return None
     current_phase_match = re.search(r"\bphase\s*([12])\b", current_phase_heading.get_text(" ", strip=True), re.I)
     current_phase = int(current_phase_match.group(1)) if current_phase_match else 1
-    upcoming_phase = int(upcoming_phase_match.group(1)) if upcoming_phase_match else current_phase + 1
+    upcoming_phase_value = upcoming_phase_match.group(1).upper() if upcoming_phase_match else None
+    upcoming_phase = (2 if upcoming_phase_value in {"2", "II"} else 1 if upcoming_phase_value in {"1", "I"}
+                      else current_phase + 1)
     current_names = _game8_featured_characters(current_section)
     upcoming_names = _game8_featured_characters(upcoming_section)
     if not current_names or not upcoming_names:
@@ -1248,7 +1264,6 @@ def main():
             snapshot["weapon"] = ", ".join(weapons)
             snapshot.setdefault("weaponImages", {}).update({name: image for name in weapons if (image := fandom_image(name))})
             snapshot["sourceUrls"] = list(dict.fromkeys(snapshot.get("sourceUrls", []) + ["https://wuwatracker.com/timeline"]))
-            snapshot["sourceLabel"] = snapshot.get("sourceLabel", "Community schedule") + " + WuWa Tracker Timeline"
 
     # Deduplicate URLs first, then near-identical titles.
     by_url = {}
@@ -1295,6 +1310,8 @@ def main():
     }
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
     print(f"wrote {len(final)} news; {len(versions)} versions; {len(banners)} banners; {len(resonators)} resonators; {len(events)} events; {len(errors)} source errors")
+    for error in errors:
+        print(f"source error [{error.get('sourceId', 'unknown')}/{error.get('stage', 'process')}]: {error.get('error', 'unknown error')}")
 
 
 if __name__ == '__main__':
