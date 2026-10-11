@@ -237,22 +237,24 @@ private fun WuWaTrackerRoot() {
     val feed=state.feedItems.filter{it.relevant(version,now)}.sortedByDescending{runCatching{Instant.parse(it.publishedAt)}.getOrDefault(Instant.EPOCH)}
     val banners=state.banners.filter{it.relevant(version,now)}
     fun oneCardPerPhase(rows:List<BannerIntel>)=rows.groupBy{"${it.version.orEmpty()}|${it.phase ?: 0}"}.values.mapNotNull{phaseRows->phaseRows.maxByOrNull{(if(it.weaponClaim.isNullOrBlank())0 else 100+it.weaponClaim.length)+(it.weaponImages.size*10)+(it.resonatorImages.size*5)+(if(it.sourceLabel.contains("WuWaBuild",true))25 else 0)}}
-    fun timing(b:BannerIntel)=b.serverTimes[state.server.name] ?: BannerServerTiming(b.startAt,b.endAt)
-    val active=oneCardPerPhase(banners.filter{val t=timing(it);t.startAt!=null&&t.startAt<=now&&(t.endAt==null||t.endAt>now)}).sortedBy{it.phase}
-    val upcoming=oneCardPerPhase(banners.filter{timing(it).startAt?.isAfter(now)==true}).sortedBy{timing(it).startAt}
-    val teased=banners.filter{it.scheduleStatus.equals("TEASED",true)&&it.serverTimes.isEmpty()&&timing(it).startAt==null}.distinctBy{it.title.lowercase(Locale.ROOT)+it.version.orEmpty()}
+    // Only use validated server-specific timing for live banner status. Legacy
+    // date-only UTC boundaries otherwise appear as misleading local clock times.
+    fun timing(b:BannerIntel):BannerServerTiming?=b.serverTimes[state.server.name]?.takeIf{it.startAt!=null&&it.endAt!=null}
+    val active=oneCardPerPhase(banners.filter{val t=timing(it);t!=null&&t.startAt!!<=now&&t.endAt!!>now}).sortedBy{it.phase}
+    val upcoming=oneCardPerPhase(banners.filter{timing(it)?.startAt?.isAfter(now)==true}).sortedBy{timing(it)?.startAt}
+    val teased=banners.filter{it.scheduleStatus.equals("TEASED",true)&&timing(it)==null}.distinctBy{it.title.lowercase(Locale.ROOT)+it.version.orEmpty()}
     fun cacheEnd(b:BannerIntel):Instant? {
-        timing(b).endAt?.let{return it}
-        val baseStart=timing(b).startAt
+        timing(b)?.endAt?.let{return it}
+        val baseStart=timing(b)?.startAt
         val laterPhase=state.banners.asSequence().filter{candidate->
-            val candidateStart=timing(candidate).startAt
+            val candidateStart=timing(candidate)?.startAt
             candidate.version==b.version&&candidate.phase!=null&&b.phase!=null&&candidate.phase>b.phase&&candidateStart!=null&&(baseStart==null||candidateStart.isAfter(baseStart))
-        }.mapNotNull{timing(it).startAt}.minOrNull()
+        }.mapNotNull{timing(it)?.startAt}.minOrNull()
         if(laterPhase!=null)return laterPhase
         return b.version?.let{version->state.banners.asSequence().filter{candidate->
-            val candidateStart=timing(candidate).startAt
+            val candidateStart=timing(candidate)?.startAt
             candidate.version!=null&&compareVersion(candidate.version,version)>0&&candidateStart!=null&&(baseStart==null||candidateStart.isAfter(baseStart))
-        }.mapNotNull{timing(it).startAt}.minOrNull()}
+        }.mapNotNull{timing(it)?.startAt}.minOrNull()}
     }
     LaunchedEffect(state.banners){withContext(Dispatchers.IO){pruneArtworkCache(appContext)}}
     ArtworkScreen(modifier,R.drawable.bg_intel){LazyColumn(Modifier.fillMaxSize().padding(horizontal=16.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
@@ -261,10 +263,10 @@ private fun WuWaTrackerRoot() {
         item{Button(onClick=onRefresh,enabled=!syncing,modifier=Modifier.fillMaxWidth()){Text(if(syncing)"Refreshing…" else "Refresh Intelligence Feed")}}
         item{Text("Current version · "+version,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold,color=Color(0xFFFFD994))}
         item{Text("Active Resonator / Weapon Banners",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,color=Color(0xFFE7DAFF))}
-        if(active.isEmpty()) item{InfoCard("Live schedule","Banner details will appear here when the public feed refreshes.","No external site is needed to view the schedule.")}
+        if(active.isEmpty()) item{InfoCard("Live schedule","No verified timing for your selected server is available in the feed.","Check the in-game banner timer for exact availability.")}
         items(active){b->BannerOverviewCard(b,true,state.server,cacheEnd(b)?.toEpochMilli()?:Long.MAX_VALUE)}
         item{Text("Upcoming Resonator / Weapon Banners",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,color=Color(0xFFBFE8E2))}
-        if(upcoming.isEmpty()) item{InfoCard("Upcoming schedule","No upcoming schedule details are available in the feed right now.","Check again after the next feed refresh.")}
+        if(upcoming.isEmpty()) item{InfoCard("Upcoming schedule","No verified upcoming timing for your selected server is available in the feed.","Upcoming banners will appear when a source provides server-specific times.")}
         items(upcoming){b->BannerOverviewCard(b,false,state.server,cacheEnd(b)?.toEpochMilli()?:Long.MAX_VALUE)}
         if(teased.isNotEmpty()){
             item{Text("Teased Resonator Banners",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,color=Color(0xFFE7DAFF))}
@@ -291,9 +293,9 @@ private data class IntelGroup(val title:String,val status:String,val emptyMessag
 @Composable private fun ChevronControl(collapsed:Boolean){Box(Modifier.size(44.dp),contentAlignment=Alignment.Center){Canvas(Modifier.size(22.dp)){val stroke=2.5.dp.toPx();if(collapsed){drawLine(Color.White,androidx.compose.ui.geometry.Offset(size.width*.22f,size.height*.40f),androidx.compose.ui.geometry.Offset(size.width*.50f,size.height*.68f),strokeWidth=stroke,cap=StrokeCap.Round);drawLine(Color.White,androidx.compose.ui.geometry.Offset(size.width*.50f,size.height*.68f),androidx.compose.ui.geometry.Offset(size.width*.78f,size.height*.40f),strokeWidth=stroke,cap=StrokeCap.Round)}else{drawLine(Color.White,androidx.compose.ui.geometry.Offset(size.width*.22f,size.height*.60f),androidx.compose.ui.geometry.Offset(size.width*.50f,size.height*.32f),strokeWidth=stroke,cap=StrokeCap.Round);drawLine(Color.White,androidx.compose.ui.geometry.Offset(size.width*.50f,size.height*.32f),androidx.compose.ui.geometry.Offset(size.width*.78f,size.height*.60f),strokeWidth=stroke,cap=StrokeCap.Round)}}}}
 @Composable private fun BannerOverviewCard(b:BannerIntel,current:Boolean,server:Server,cacheExpiresAt:Long){
     var expanded by remember(b.title,current){mutableStateOf(false)}
-    val serverTiming=b.serverTimes[server.name]
-    val startAt=serverTiming?.startAt ?: b.startAt
-    val endAt=serverTiming?.endAt ?: b.endAt
+    val serverTiming=b.serverTimes[server.name]?.takeIf{it.startAt!=null&&it.endAt!=null}
+    val startAt=serverTiming?.startAt
+    val endAt=serverTiming?.endAt
     val scheduleRange=listOfNotNull(startAt?.let{formatBannerTime(it,server,serverTiming!=null)},endAt?.let{formatBannerTime(it,server,serverTiming!=null)}).let{dates->if(dates.size==2)"${dates[0]} – ${dates[1]}" else dates.firstOrNull().orEmpty()}
     val scheduleSuffix=if(serverTiming!=null)" (${server.label} server time)" else ""
     val names=b.title.split(Regex("\\s*,\\s*|\\s+and\\s+" )).map{it.trim()}.filter{it.isNotBlank()}.distinctBy{it.lowercase(Locale.ROOT)}.take(3)
