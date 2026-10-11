@@ -995,8 +995,40 @@ def _remove_stale_prydwen_rows(snapshots, live_version):
 
 def _harmonize_prydwen_rows(snapshots, live_version=None):
     """Use schedule sources for featured 5-star names and Game8 for regional times."""
-    schedules = [row for row in snapshots if row.get("snapshotType") == "game8" and row.get("serverTimes")]
+    required_servers = {"AMERICA", "EUROPE", "ASIA", "HMT", "SEA"}
+
+    def has_complete_server_schedule(row):
+        times = row.get("serverTimes")
+        return isinstance(times, dict) and all(
+            isinstance(times.get(server), dict)
+            and times[server].get("startAt")
+            and times[server].get("endAt")
+            for server in required_servers
+        )
+
+    schedules = [
+        row for row in snapshots
+        if row.get("snapshotType") == "game8"
+        and has_complete_server_schedule(row)
+    ]
     name_sources = [row for row in snapshots if row.get("snapshotType") in {"game8", "wuwabuild"}]
+
+    # WuWaBuild has useful featured-character and weapon data but only publishes
+    # calendar dates. Attach Game8's complete regional schedule by version/phase
+    # so the app does not have to display an unspecific UTC date as a banner time.
+    for row in snapshots:
+        if row.get("snapshotType") != "wuwabuild" or row.get("serverTimes"):
+            continue
+        candidates = [candidate for candidate in schedules
+                      if candidate.get("version") == row.get("version")
+                      and candidate.get("phase") == row.get("phase")
+                      and candidate.get("scheduleStatus") == row.get("scheduleStatus")]
+        if len(candidates) == 1:
+            timed = candidates[0]
+            row.update({key: timed[key] for key in ("startAt", "endAt", "serverTimes", "timingBasis") if key in timed})
+            row["sourceLabel"] = f"{row.get('sourceLabel', 'WuWaBuild banner schedule')} + Game8 Banner Schedule"
+            row["sourceUrls"] = list(dict.fromkeys(row.get("sourceUrls", []) + timed.get("sourceUrls", [])))
+
     for row in snapshots:
         if row.get("snapshotType") != "prydwen":
             continue
@@ -1034,11 +1066,17 @@ def _harmonize_prydwen_rows(snapshots, live_version=None):
         row["sourceLabel"] = f"{best.get('sourceLabel', 'Community banner schedule')} + Prydwen Banner Overview"
         row["sourceUrls"] = list(dict.fromkeys(best.get("sourceUrls", []) + row.get("sourceUrls", [])))
         row["confidence"] = min(best.get("confidence", 0.9), row.get("confidence", 0.9))
-        timed = next((candidate for candidate in schedules
-                      if candidate.get("scheduleStatus") == row.get("scheduleStatus")
-                      and candidate.get("version") == best.get("version")
-                      and candidate.get("phase") == best.get("phase")
-                      and names & {n.strip().casefold() for n in re.split(r",|\band\b", candidate.get("title", "")) if n.strip()}), None)
+        matching_schedules = [candidate for candidate in schedules
+                              if candidate.get("scheduleStatus") == row.get("scheduleStatus")
+                              and candidate.get("version") == best.get("version")
+                              and candidate.get("phase") == best.get("phase")]
+        # Prefer matching character evidence. If roster names differ between
+        # sources, use timing only when version, phase and lifecycle identify a
+        # single Game8 schedule; never guess between multiple candidates.
+        timed = next((candidate for candidate in matching_schedules
+                      if names & {n.strip().casefold() for n in re.split(r",|\band\b", candidate.get("title", "")) if n.strip()}), None)
+        if timed is None and len(matching_schedules) == 1:
+            timed = matching_schedules[0]
         if timed:
             row.update({key: timed[key] for key in ("version", "phase", "startAt", "endAt", "serverTimes", "timingBasis") if key in timed})
             row["sourceLabel"] = "Game8 Banner Schedule + Prydwen Banner Overview"
