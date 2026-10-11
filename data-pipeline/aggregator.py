@@ -581,6 +581,7 @@ def _game8_iso(value):
 def _game8_datetime(match, offset_hours):
     date_text, time_text = match.groups()
     normalized = re.sub(r",(?=\s*20\d{2})", "", date_text)
+    normalized = re.sub(r"\b(Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.(?=\s)", r"\1", normalized, flags=re.I)
     normalized = re.sub(r"\s+", " ", normalized).strip()
     time_text = re.sub(r"\s+", "", time_text).upper()
     parsed = None
@@ -623,7 +624,7 @@ def _game8_server_times(soup, now=None, calendar_text=None):
     rows = soup.find_all("tr")
     for row_index, row in enumerate(rows):
         cells = [clean_text(cell.get_text(" ", strip=True)) for cell in row.find_all(["td", "th"])]
-        if len(cells) < 2:
+        if not cells:
             continue
         region_text = cells[0].lower()
         combined = re.search(r"\bhmt\s*/\s*sea\b", region_text)
