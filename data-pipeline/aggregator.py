@@ -911,6 +911,8 @@ def _game8_text_before(soup, stop_node):
 
 
 def _game8_featured_characters(section):
+    # Game8's current-phase table labels the featured 5-star row explicitly.
+    # Keep this path first so the adjacent 4-star rate-up row is never mixed in.
     for table in (node for node in section if node.name == "table"):
         table_text = clean_text(table.get_text(" ", strip=True))
         if "Featured Characters" not in table_text or "5★ Limited Rate-Up" not in table_text:
@@ -930,6 +932,9 @@ def _game8_featured_characters(section):
                                    or anchor.get_text(" ", strip=True))
                 label = re.sub(r"^Wuthering\s+Waves\s*[-–:]\s*", "", label, flags=re.I)
                 label = re.sub(r"^Open\s+", "", label, flags=re.I).strip()
+                banner_name = re.match(r"([\w'’.-]+)\s+banner\b", label, re.I)
+                if banner_name:
+                    label = banner_name.group(1)
                 anchor_text = clean_text(anchor.get_text(" ", strip=True))
                 if anchor_text and not re.search(r"(?:banner|weapon|signature|icon)", anchor_text, re.I):
                     anchor_text = re.sub(r"^Open\s+", "", anchor_text, flags=re.I).strip()
@@ -938,6 +943,44 @@ def _game8_featured_characters(section):
                 if (2 <= len(label) <= 40 and not re.search(r"banner|weapon|signature|icon|limited|rate-up", label, re.I)
                         and label.lower() not in {name.lower() for name in names}):
                     names.append(label)
+            if names:
+                return names
+
+    # The evergreen overview uses a different layout for the next phase: its
+    # phase table contains one linked card per featured character, without a
+    # "5★ Limited Rate-Up" label. Find that first phase table, and stop before
+    # the following heading (which commonly introduces signature weapons).
+    phase_heading = next((node for node in section
+                          if node.name in {"h3", "h4"}
+                          and re.search(r"\bphase\s*(?:[12]|i{1,2})\b|\bwith\s+multiple\s+reruns\b",
+                                        clean_text(node.get_text(" ", strip=True)), re.I)), None)
+    if phase_heading:
+        phase_table = None
+        for node in phase_heading.find_all_next(["h2", "h3", "h4", "table"]):
+            if node.name in {"h2", "h3", "h4"}:
+                break
+            if node.name == "table":
+                phase_table = node
+                break
+        if phase_table:
+            names = []
+            for anchor in phase_table.find_all("a", href=True):
+                image = anchor.find("img")
+                label = clean_text((image.get("alt", "") if image else "")
+                                   or anchor.get("aria-label", "") or anchor.get("title", "")
+                                   or anchor.get_text(" ", strip=True))
+                label = re.sub(r"^Wuthering\s+Waves\s*[-–:]\s*", "", label, flags=re.I)
+                label = re.sub(r"^(?:open|view)\s+", "", label, flags=re.I).strip()
+                # Game8 card labels look like "Lynae Banner - ... Lynae Rerun
+                # Banner". The character name is the leading text before Banner.
+                match = re.match(r"([\w'’.-]+)\s+banner\b", label, re.I)
+                if not match:
+                    anchor_text = clean_text(anchor.get_text(" ", strip=True))
+                    match = re.match(r"([\w'’.-]+)\s+banner\b", anchor_text, re.I)
+                name = match.group(1).strip() if match else ""
+                if (2 <= len(name) <= 32 and name.lower() not in {item.lower() for item in names}
+                        and not re.search(r"weapon|signature|banner|rate-up", name, re.I)):
+                    names.append(name)
             if names:
                 return names
     return []
