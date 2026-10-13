@@ -680,6 +680,20 @@ def _game8_server_times(soup, now=None, calendar_text=None):
         table = row.find_parent("table")
         date_span = _game8_date_span(clean_text(table.get_text(" ", strip=True))) if table else None
         date_span = date_span or page_date_span
+
+        # Check if Game8 uses the newer data-date attribute for the countdown timer
+        timer_div = row.find("div", class_="js-saola-timer")
+        if date_span and timer_div and timer_div.has_attr("data-date"):
+            start_date, end_date = date_span
+            end_at = datetime.fromtimestamp(int(timer_div["data-date"]) / 1000.0, tz=timezone.utc)
+            start_at = end_at - timedelta(days=(end_date - start_date).days)
+            record = {"startAt": _game8_iso(start_at), "endAt": _game8_iso(end_at)}
+            if combined:
+                combined_hmt_sea = record
+            else:
+                times[key] = record
+            continue
+
         remaining = _game8_countdown_seconds(" ".join(cells[1:]))
         if date_span and remaining is not None:
             start_date, end_date = date_span
