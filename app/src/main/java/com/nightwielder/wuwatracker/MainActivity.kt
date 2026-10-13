@@ -297,11 +297,11 @@ private data class IntelGroup(val title:String,val status:String,val emptyMessag
 @Composable private fun BannerOverviewCard(b:BannerIntel,current:Boolean,server:Server,cacheExpiresAt:Long){
     var expanded by remember(b.title,current){mutableStateOf(false)}
     val serverTiming=b.serverTimes[server.name]?.takeIf{it.startAt!=null&&it.endAt!=null}
-    val startAt=serverTiming?.startAt
-    val endAt=serverTiming?.endAt
-    val scheduleRange=listOfNotNull(startAt?.let{formatBannerTime(it,server,true)},endAt?.let{formatBannerTime(it,server,true)}).let{times->if(times.size==2)"${times[0]} – ${times[1]}" else times.firstOrNull().orEmpty()}
-    val scheduleSuffix=if(serverTiming!=null)" (${server.label} server time)" else ""
-    val missingScheduleLabel=if(b.serverTimes.isEmpty())"Exact server schedule unavailable" else "No schedule for ${server.label} server"
+    val startAt=serverTiming?.startAt ?: b.startAt
+    val endAt=serverTiming?.endAt ?: b.endAt
+    val scheduleRange=listOfNotNull(startAt?.let{formatBannerTime(it,server,serverTiming!=null)},endAt?.let{formatBannerTime(it,server,serverTiming!=null)}).let{times->if(times.size==2)"${times[0]} – ${times[1]}" else times.firstOrNull().orEmpty()}
+    val scheduleSuffix=if(serverTiming!=null)" (${server.label} server time)" else if(startAt!=null||endAt!=null)" (Local time)" else ""
+    val missingScheduleLabel=if(b.serverTimes.isEmpty() && b.startAt==null && b.endAt==null)"Exact server schedule unavailable" else "No schedule for ${server.label} server"
     val scheduleDescription=if(scheduleRange.isNotBlank())"${if(current)"From " else "Starts "}$scheduleRange$scheduleSuffix" else missingScheduleLabel
     val bannerSummary=listOfNotNull(b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)},scheduleDescription).joinToString(" · ")
     val expandedSummary=listOfNotNull(b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)},scheduleRange.takeIf{it.isNotBlank()}?.plus(scheduleSuffix)).joinToString(" · ").ifBlank{missingScheduleLabel}
