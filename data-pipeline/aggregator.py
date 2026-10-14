@@ -1244,9 +1244,32 @@ def prydwen_banner_snapshot(soup, text, url, now):
                 names.append(candidate)
         if not names:
             continue
+        server_times = {}
+        timer_node = heading.find_next("div", attrs={"data-banner-timer": "true"})
+        if timer_node:
+            next_heading = timer_node.find_previous(["h2", "h3", "h4"])
+            if next_heading is heading:
+                start_na = timer_node.get("data-start-na")
+                end_na = timer_node.get("data-end-na")
+                start_eu = timer_node.get("data-start-eu")
+                end_eu = timer_node.get("data-end-eu")
+                start_asia = timer_node.get("data-start-asia")
+                end_asia = timer_node.get("data-end-asia")
+                if start_na and end_na:
+                    server_times["AMERICA"] = {"startAt": start_na, "endAt": end_na}
+                if start_eu and end_eu:
+                    server_times["EUROPE"] = {"startAt": start_eu, "endAt": end_eu}
+                if start_asia and end_asia:
+                    server_times["ASIA"] = {"startAt": start_asia, "endAt": end_asia}
+                    server_times["HMT"] = {"startAt": start_asia, "endAt": end_asia}
+                    server_times["SEA"] = {"startAt": start_asia, "endAt": end_asia}
+
+        start_at = server_times.get("SEA", {}).get("startAt") or server_times.get("AMERICA", {}).get("startAt")
+        end_at = server_times.get("SEA", {}).get("endAt") or server_times.get("AMERICA", {}).get("endAt")
+
         output.append({
             "title": ", ".join(dict.fromkeys(names)), "version": version_value, "phase": phase,
-            "startAt": None, "endAt": None, "status": "COMMUNITY", "scheduleStatus": section_status,
+            "startAt": start_at, "endAt": end_at, "serverTimes": server_times, "status": "COMMUNITY", "scheduleStatus": section_status,
             "confidence": 0.9, "sourceLabel": "Prydwen Banner Overview", "sourceUrls": [url], "snapshotAt": now,
         })
     return output or None
