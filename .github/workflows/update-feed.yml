@@ -3,6 +3,8 @@ name: WuWa Intelligence Feed
 on:
   schedule:
     - cron: '0 0 * * *'
+  push:
+    branches: [ main, master ]
   workflow_dispatch:
 
 concurrency:
