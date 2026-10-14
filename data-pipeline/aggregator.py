@@ -783,6 +783,9 @@ def _game8_banner_article(url):
 
 def game8_banner_snapshot(source, soup, text, url, now):
     """Discover the latest Game8 banner guide and its current/upcoming character pages."""
+    overview = _game8_overview_snapshots(soup, url, now)
+    if overview:
+        return overview
     guide_links = [(clean_text(anchor.get_text(" ", strip=True)), urljoin(url, anchor["href"]))
                    for anchor in soup.find_all("a", href=True)
                    if urlsplit(urljoin(url, anchor["href"])).hostname in {"game8.co", "www.game8.co"}]
