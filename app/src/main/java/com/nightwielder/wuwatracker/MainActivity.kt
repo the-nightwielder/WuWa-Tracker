@@ -300,7 +300,23 @@ private data class IntelGroup(val title:String,val status:String,val emptyMessag
     val startAt=serverTiming?.startAt ?: b.startAt
     val endAt=serverTiming?.endAt ?: b.endAt
     val scheduleRange=listOfNotNull(startAt?.let{formatBannerTime(it,server,serverTiming!=null)},endAt?.let{formatBannerTime(it,server,serverTiming!=null)}).let{times->if(times.size==2)"${times[0]} – ${times[1]}" else times.firstOrNull().orEmpty()}
-    val userTzCode=runCatching{java.util.TimeZone.getDefault().getDisplayName(java.util.TimeZone.getDefault().inDaylightTime(java.util.Date()),java.util.TimeZone.SHORT,Locale.US)}.getOrDefault("Local")
+    val userTzCode=runCatching{
+        val tz=java.util.TimeZone.getDefault()
+        val isDaylight=tz.inDaylightTime(java.util.Date())
+        val shortName=tz.getDisplayName(isDaylight,java.util.TimeZone.SHORT,Locale.US)
+        if(shortName.startsWith("GMT+")||shortName.startsWith("GMT-")||shortName.startsWith("UTC+")){
+            when(tz.id){
+                "Asia/Kolkata","Asia/Calcutta"->"IST"
+                "Asia/Singapore"->"SGT"
+                "Asia/Tokyo"->"JST"
+                "Asia/Shanghai"->"CST"
+                "Europe/London"->if(isDaylight)"BST" else "GMT"
+                "America/New_York"->if(isDaylight)"EDT" else "EST"
+                "America/Los_Angeles"->if(isDaylight)"PDT" else "PST"
+                else->shortName
+            }
+        } else shortName
+    }.getOrDefault("Local")
     val localRange=startAt?.let{st->
         val userZone=ZoneId.systemDefault()
         val timeFmt=DateTimeFormatter.ofPattern("h:mm a",Locale.US).withZone(userZone)
@@ -338,11 +354,11 @@ private data class IntelGroup(val title:String,val status:String,val emptyMessag
         if(expanded){
             Text("Resonators",style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold,color=if(current)Color(0xFFFFD994) else Color(0xFFBFE8E2))
             names.forEachIndexed{index,name->
-                Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){ResonatorArtwork(name,b.resonatorImages.artworkFor(name),cacheExpiresAt);Column{Text(name,fontWeight=FontWeight.SemiBold,color=Color.White);Text(listOfNotNull(b.phase?.let{phaseLabel(it)},scheduleRange.takeIf{it.isNotBlank()}?.plus(scheduleSuffix)).joinToString(" · ").ifBlank{missingScheduleLabel},style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}
+                Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){ResonatorArtwork(name,b.resonatorImages.artworkFor(name),cacheExpiresAt);Column{Text(name,fontWeight=FontWeight.SemiBold,color=Color.White);Text(b.phase?.let{phaseLabel(it)}?:"Featured Resonator",style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}
             }
             HorizontalDivider()
             Text("Weapons",style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold,color=if(current)Color(0xFFFFD994) else Color(0xFFBFE8E2))
-            if(weapons.isEmpty())Text("Weapon names will appear after the updated schedule feed is published.",style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA)) else weapons.forEachIndexed{index,name->Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){WeaponArtwork(name,b.weaponImages[name],cacheExpiresAt);Column{Text(name,fontWeight=FontWeight.SemiBold,color=Color.White);Text(listOfNotNull(b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)},scheduleRange.takeIf{it.isNotBlank()}?.plus(scheduleSuffix)).joinToString(" · ").ifBlank{missingScheduleLabel},style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}}
+            if(weapons.isEmpty())Text("Weapon names will appear after the updated schedule feed is published.",style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA)) else weapons.forEachIndexed{index,name->Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){WeaponArtwork(name,b.weaponImages[name],cacheExpiresAt);Column{Text(name,fontWeight=FontWeight.SemiBold,color=Color.White);Text(listOfNotNull(b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)}).joinToString(" · ").ifBlank{"Featured Weapon"},style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}}
             if(weapons.isNotEmpty() && b.status.equals("COMMUNITY",true))Text("Weapon pairings are community schedule references.",style=MaterialTheme.typography.labelSmall,color=Color.LightGray)
         }
     }}
