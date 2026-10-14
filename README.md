@@ -6,19 +6,19 @@ This project was developed with substantial AI assistance using an informal “v
 
 ## Features
 
-- Daily reset countdowns for America, Europe, Asia, SEA, and HMT servers, displayed in the device’s local time
-- Optional reset and custom reminders
-- Daily and Lunite checklists, plus monthly Endgame checklist reminders for Tower of Adversity, Whimpering Wastes, and Endstate Matrix
-- Endgame tracking for Tower of Adversity, Whimpering Wastes, and Endstate Matrix
-- Active and upcoming banner schedules, with resonator and weapon details when available
-- Intelligence feed that separates official confirmations, community reports, and unconfirmed leaks
-- Source links and evidence labels where available
+- **Per-Server Reset & Reminders:** Daily reset countdowns for America, Europe, Asia, SEA, and HMT servers, displayed in the device’s local time. Optional reset and custom reminders.
+- **Live Server-Synced Banner Schedules:** Active and upcoming banner cards display exact start and end dates/times synced directly with live Prydwen and Game8 server countdowns across all regional servers (**America**, **Europe**, **Asia**, **HMT**, and **SEA**).
+- **Dynamic Server Switching & Local Time Conversion:** Switching the server in the app instantly updates the banner schedule to match that server's regional schedule, converted side-by-side with your device's auto-detected local timezone (e.g. `IST`, `EDT`, `PST`, `BST`, `SGT`).
+- **5-Star Showcase & Color-Coded Badges:** Resonator banners highlight 5-star debut and rerun resonators (filtering out 4-star rate-ups) and pair them with signature weapons using color-coded badges (`[ 5★ DEBUT ]`, `[ 5★ RERUN ]`, `[ 5★ SIGNATURE ]`, `[ 5★ FEATURED ]`).
+- **Uncongested Card Design:** Consolidated timeline headers at the top of expanded cards keep individual character and weapon rows smooth, spacious, and easy to scan.
+- **Checklists & Endgame Tracking:** Daily and Lunite checklists, plus monthly Endgame checklist reminders for Tower of Adversity, Whimpering Wastes, and Endstate Matrix.
+- **Intelligence Feed:** Categorized feed separating official confirmations, community reports, and unconfirmed leaks with source links and evidence labels.
 
 The monthly Endgame checkboxes reset at the start of each calendar month in the selected game server’s time zone. They are convenience reminders; they do not track the individual modes’ live rotation start and end dates. The Endgame tab can display source-derived dates when the feed provides them, but its built-in recurring entries do not have exact dates. Use the in-game timers for current rotation timing.
 
 ## Intelligence feed and updates
 
-The feed is assembled by a Python pipeline and published as `feed.json` through GitHub Pages. A GitHub Actions workflow runs once per day and can also be started manually from the repository’s **Actions** tab. The app’s **Refresh intelligence** button downloads the latest feed already published to GitHub Pages; it does not start the GitHub Actions workflow.
+The feed is assembled by a Python pipeline and published as `feed.json` through GitHub Pages. A GitHub Actions workflow runs once per day, automatically triggers on repository pushes, and can also be started manually from the repository’s **Actions** tab. The app’s **Refresh intelligence** button downloads the latest feed already published to GitHub Pages.
 
 The feed is best-effort. Sources can change, become unavailable, or omit information; automated extraction and summaries can be incomplete or wrong. A report’s presence does not confirm that it is true. Treat leaks as unconfirmed, and use Kuro Games announcements and the in-game schedule as the final authority.
 
@@ -33,10 +33,11 @@ WuWa Tracker links to public sources and uses them as references for schedule an
 
 ### Banner schedules and reference data
 
+- [Game8 Banner Schedule](https://game8.co/games/Wuthering-Waves/archives/453303) — per-server countdown and schedule reference
+- [Prydwen Banner Overview](https://www.prydwen.gg/wuthering-waves/banners) — resonator, weapon, and regional countdown reference
 - [WuWa Banners](https://wuwabanners.net/) — current banner schedule reference
 - [GenGamer Wuthering Waves Countdown](https://wuthering-countdown.gengamer.in/) — upcoming banner schedule reference
 - [WuWaTracker Timeline](https://wuwatracker.com/timeline) — timeline and weapon schedule references
-- [WuWaBuild Banners](https://www.wuwabuild.com/banners) — banner schedule reference
 
 ### Community reports and leak discovery
 
@@ -70,4 +71,4 @@ No open-source license is currently granted for this repository’s original sou
 2. Build the app using the included Gradle wrapper.
 3. For public distribution, create a properly signed release APK. Never commit the signing key or passwords to the repository.
 
-The project targets Android API 35. The current app version is **1.2.0** (version code **120**).
+The project targets Android API 35. The current app version is **1.3.0** (version code **130**).
