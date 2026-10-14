@@ -300,7 +300,28 @@ private data class IntelGroup(val title:String,val status:String,val emptyMessag
     val startAt=serverTiming?.startAt ?: b.startAt
     val endAt=serverTiming?.endAt ?: b.endAt
     val scheduleRange=listOfNotNull(startAt?.let{formatBannerTime(it,server,serverTiming!=null)},endAt?.let{formatBannerTime(it,server,serverTiming!=null)}).let{times->if(times.size==2)"${times[0]} – ${times[1]}" else times.firstOrNull().orEmpty()}
-    val scheduleSuffix=if(serverTiming!=null)" (${server.label} server time)" else if(startAt!=null||endAt!=null)" (Local time)" else ""
+    val userTzCode=runCatching{java.util.TimeZone.getDefault().getDisplayName(java.util.TimeZone.getDefault().inDaylightTime(java.util.Date()),java.util.TimeZone.SHORT,Locale.US)}.getOrDefault("Local")
+    val localRange=startAt?.let{st->
+        val userZone=ZoneId.systemDefault()
+        val timeFmt=DateTimeFormatter.ofPattern("h:mm a",Locale.US).withZone(userZone)
+        val dateFmt=DateTimeFormatter.ofPattern("MMM d, h:mm a",Locale.US).withZone(userZone)
+        val serverZone=if(serverTiming!=null)server.bannerZone else ZoneId.systemDefault()
+        val serverStartFmt=DateTimeFormatter.ofPattern("MMM d",Locale.US).withZone(serverZone).format(st)
+        val localStartFmt=DateTimeFormatter.ofPattern("MMM d",Locale.US).withZone(userZone).format(st)
+        val startStr=if(serverStartFmt==localStartFmt)timeFmt.format(st) else dateFmt.format(st)
+        val endStr=endAt?.let{et->
+            val serverEndFmt=DateTimeFormatter.ofPattern("MMM d",Locale.US).withZone(serverZone).format(et)
+            val localEndFmt=DateTimeFormatter.ofPattern("MMM d",Locale.US).withZone(userZone).format(et)
+            if(serverEndFmt==localEndFmt)timeFmt.format(et) else dateFmt.format(et)
+        }
+        listOfNotNull(startStr,endStr).joinToString(" – ")
+    }.orEmpty()
+    val isSameOffset=serverTiming!=null&&ZoneId.systemDefault().rules.getOffset(Instant.now())==server.bannerZone.rules.getOffset(Instant.now())
+    val scheduleSuffix=if(serverTiming!=null){
+        if(!isSameOffset&&localRange.isNotBlank())" (${server.label} Server Time · $localRange $userTzCode)" else " (${server.label} Server Time)"
+    } else if(startAt!=null||endAt!=null){
+        " ($userTzCode Time)"
+    } else ""
     val missingScheduleLabel=if(b.serverTimes.isEmpty() && b.startAt==null && b.endAt==null)"Exact server schedule unavailable" else "No schedule for ${server.label} server"
     val scheduleDescription=if(scheduleRange.isNotBlank())"${if(current)"From " else "Starts "}$scheduleRange$scheduleSuffix" else missingScheduleLabel
     val bannerSummary=listOfNotNull(b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)},scheduleDescription).joinToString(" · ")
