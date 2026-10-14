@@ -8,9 +8,15 @@ Sources are configured in [`sources.json`](sources.json). The pipeline does not 
 
 An item is labeled `OFFICIAL` only when publisher metadata identifies an approved Kuro Games domain or the official Wuthering Waves X account; a source's configured category alone is not enough. Items from sources configured as `leak-community`, and other items whose title or summary contains leak-related terms, are labeled `LEAK`. This label does not confirm a claim.
 
-The pipeline reads Google News RSS search results, Reddit RSS, selected public HTML pages and schedule snapshots, and Kuro Games' official news JSON index. The direct official-site JSON source contributes items dated within 60 days of feed generation. Each remote response is limited to 10 MiB. Source failures are recorded in `sourceHealth` where possible, and one failed source does not prevent other sources from being processed.
+The pipeline reads Google News RSS search results, Reddit RSS, Prydwen and Game8 schedule snapshots, and Kuro Games' official news JSON index. Each remote response is limited to 10 MiB. Source failures are recorded in `sourceHealth` where possible, and one failed source does not prevent other sources from being processed.
 
-The live game version is taken only from a dated schedule snapshot marked as current and active at feed-generation time; an official announcement of a future version does not by itself make that version current. Leak-community searches are narrowed to the next minor version. A report receives `targetVersion` metadata only when an eligible version is stated explicitly; a version in the headline takes precedence over one in the summary. The app uses this metadata as part of its version-relevance filtering.
+### Per-Server Banner Timer Synchronization
+
+- **Prydwen & Game8 Extraction:** The scraper extracts per-server countdown attributes (`data-start-na`, `data-start-eu`, `data-start-asia`, and Game8 `js-saola-timer` timestamps) to compute exact start and end times for all regional servers (**AMERICA**, **EUROPE**, **ASIA**, **HMT**, and **SEA**).
+- **5-Star Resonator Filtering:** Character links under 4-star secondary rate-ups are filtered out, ensuring clean 5-star banner titles for smooth harmonization between Prydwen and Game8 sources.
+- **Dynamic Link Discovery & Overview Navigation:** Overview URLs navigate directly to primary banner guide pages while dynamically discovering new version banner guides to prevent Cloudflare challenge pages during automated GitHub Actions runs.
+
+The live game version is taken only from a dated schedule snapshot marked as current and active at feed-generation time. Leak-community searches are narrowed to the next minor version. The app uses this metadata as part of its version-relevance filtering.
 
 ## Feed contents
 
@@ -37,7 +43,7 @@ python -m unittest discover -s tests -v
 python data-pipeline/aggregator.py
 ```
 
-The aggregator writes `data-pipeline/feed.json`. It makes requests to the configured public sources, so source availability and returned results can vary. The tracked `feed.json` may be an empty seed file; the workflow runs the aggregator and publishes that run's generated feed to Pages. It does not commit the generated feed back to the repository.
+The aggregator writes `data-pipeline/feed.json`. It makes requests to the configured public sources, so source availability and returned results can vary. The workflow runs the aggregator and publishes that run's generated feed to Pages.
 
 ### Update Python dependencies
 
@@ -52,7 +58,7 @@ Review the resolved versions before committing. Install the resulting lock with 
 
 ## GitHub Actions and Pages
 
-The `WuWa Intelligence Feed` workflow runs daily at 00:00 UTC and can also be started manually from the Actions tab. It installs the hash-locked dependencies, runs the security regression tests, builds the feed, and uploads **only** `feed.json` to GitHub Pages. A separate deployment job publishes that artifact with the Pages permissions it needs. The workflow does not commit the generated feed back to the repository.
+The `WuWa Intelligence Feed` workflow runs daily at 00:00 UTC, automatically triggers on repository pushes to `main`/`master`, and can also be started manually from the Actions tab. It installs the hash-locked dependencies, runs the security regression tests, builds the feed, and uploads **only** `feed.json` to GitHub Pages. A separate deployment job publishes that artifact with the Pages permissions it needs. The workflow does not commit the generated feed back to the repository.
 
 After a successful Pages deployment, the Android app can retrieve the feed at:
 
