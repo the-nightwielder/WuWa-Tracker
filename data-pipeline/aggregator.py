@@ -21,7 +21,7 @@ from bs4 import BeautifulSoup
 ROOT = Path(__file__).resolve().parent
 SOURCES = json.loads((ROOT / "sources.json").read_text())['sources']
 OUT = ROOT / "feed.json"
-UA = "WuWaTrackerDataBot/1.3 (+https://github.com/)"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 TIMEOUT = 20
 MAX_SOURCE_RESPONSE_BYTES = 10 * 1024 * 1024
 session = requests.Session()
