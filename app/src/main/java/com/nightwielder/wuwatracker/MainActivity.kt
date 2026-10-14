@@ -354,14 +354,43 @@ private data class IntelGroup(val title:String,val status:String,val emptyMessag
         if(expanded){
             Text("Resonators",style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold,color=if(current)Color(0xFFFFD994) else Color(0xFFBFE8E2))
             names.forEachIndexed{index,name->
-                Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){ResonatorArtwork(name,b.resonatorImages.artworkFor(name),cacheExpiresAt);Column{Text(name,fontWeight=FontWeight.SemiBold,color=Color.White);Text(b.phase?.let{phaseLabel(it)}?:"Featured Resonator",style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}
+                Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){
+                    ResonatorArtwork(name,b.resonatorImages.artworkFor(name),cacheExpiresAt)
+                    Column{
+                        Row(verticalAlignment=Alignment.CenterVertically){
+                            Text(name,fontWeight=FontWeight.SemiBold,color=Color.White)
+                            val (bText,bBg,bFg)=if(index==0) Triple("5★ DEBUT",Color(0x33FFD994),Color(0xFFFFD994)) else Triple("5★ RERUN",Color(0x33BFE8E2),Color(0xFFBFE8E2))
+                            BadgePill(bText,bBg,bFg)
+                        }
+                        val sub=listOfNotNull("5★ Resonator",b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)}).joinToString(" · ")
+                        Text(sub,style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))
+                    }
+                }
             }
             HorizontalDivider()
             Text("Weapons",style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold,color=if(current)Color(0xFFFFD994) else Color(0xFFBFE8E2))
-            if(weapons.isEmpty())Text("Weapon names will appear after the updated schedule feed is published.",style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA)) else weapons.forEachIndexed{index,name->Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){WeaponArtwork(name,b.weaponImages[name],cacheExpiresAt);Column{Text(name,fontWeight=FontWeight.SemiBold,color=Color.White);Text(listOfNotNull(b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)}).joinToString(" · ").ifBlank{"Featured Weapon"},style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))}}}
+            if(weapons.isEmpty())Text("Weapon names will appear after the updated schedule feed is published.",style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA)) else weapons.forEachIndexed{index,name->
+                Row(Modifier.fillMaxWidth().padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){
+                    WeaponArtwork(name,b.weaponImages[name],cacheExpiresAt)
+                    Column{
+                        Row(verticalAlignment=Alignment.CenterVertically){
+                            Text(name,fontWeight=FontWeight.SemiBold,color=Color.White)
+                            val (wText,wBg,wFg)=if(index==0) Triple("5★ SIGNATURE",Color(0x33E2DDEA),Color(0xFFF3E9FF)) else Triple("5★ FEATURED",Color(0x22FFD994),Color(0xFFE2DDEA))
+                            BadgePill(wText,wBg,wFg)
+                        }
+                        val sub=listOfNotNull("5★ Weapon",b.version?.let{"Version $it"},b.phase?.let{phaseLabel(it)}).joinToString(" · ")
+                        Text(sub,style=MaterialTheme.typography.bodySmall,color=Color(0xFFE2DDEA))
+                    }
+                }
+            }
             if(weapons.isNotEmpty() && b.status.equals("COMMUNITY",true))Text("Weapon pairings are community schedule references.",style=MaterialTheme.typography.labelSmall,color=Color.LightGray)
         }
     }}
+}
+@Composable private fun BadgePill(text:String,containerColor:Color,contentColor:Color){
+    Surface(color=containerColor,shape=RoundedCornerShape(4.dp),modifier=Modifier.padding(start=6.dp)){
+        Text(text=text,style=MaterialTheme.typography.labelSmall.copy(fontSize=10.sp,fontWeight=FontWeight.Bold),color=contentColor,modifier=Modifier.padding(horizontal=6.dp,vertical=2.dp))
+    }
 }
 @Composable private fun ArtworkInitial(name:String,weapon:Boolean=false){Box(Modifier.size(68.dp).clip(if(weapon)RoundedCornerShape(12.dp)else CircleShape).background(Color(0xFF393441)),contentAlignment=Alignment.Center){Text(name.take(1).uppercase(),style=MaterialTheme.typography.headlineMedium,color=Color.White)}}
 private fun Map<String,String>.artworkFor(name:String):String?=entries.firstOrNull{it.key.equals(name,true)}?.value
