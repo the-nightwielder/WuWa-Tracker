@@ -1225,6 +1225,8 @@ def prydwen_banner_snapshot(soup, text, url, now):
             parts = urlsplit(urljoin(url, anchor["href"]))
             if parts.hostname not in {"prydwen.gg", "www.prydwen.gg"} or not re.search(r"/wuthering-waves/characters?/[^/]+", parts.path, re.I):
                 continue
+            if anchor.find_parent("div", attrs={"aria-label": re.compile(r"secondary", re.I)}):
+                continue
             image = anchor.find("img")
             candidate = clean_text((image.get("alt", "") if image else "") or anchor.get("aria-label", "") or anchor.get("title", "") or anchor.get_text(" ", strip=True))
             # Prydwen renders an "Open <character>" accessibility label on
