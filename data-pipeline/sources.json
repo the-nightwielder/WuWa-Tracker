@@ -59,7 +59,7 @@
     {
       "id": "x-search-news",
       "kind": "google_news",
-      "query": "site:x.com Wuthering Waves",
+      "query": "site:x.com/Wuthering_Waves",
       "category": "official",
       "priority": 56
     },
