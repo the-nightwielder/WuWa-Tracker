@@ -8,7 +8,7 @@ Sources are configured in [`sources.json`](sources.json). The pipeline does not 
 
 An item is labeled `OFFICIAL` only when publisher metadata identifies an approved Kuro Games domain or the official Wuthering Waves X account; a source's configured category alone is not enough. Items from sources configured as `leak-community`, and other items whose title or summary contains leak-related terms, are labeled `LEAK`. This label does not confirm a claim.
 
-The pipeline reads Google News RSS search results, Reddit RSS, Prydwen and Game8 schedule snapshots, and Kuro Games' official news JSON index. Each remote response is limited to 10 MiB. Source failures are recorded in `sourceHealth` where possible, and one failed source does not prevent other sources from being processed.
+The pipeline reads Google News RSS search results (with a 7-day time filter `when:7d` for X search queries), Prydwen and Game8 schedule snapshots, and Kuro Games' official news JSON index. Each remote response is limited to 10 MiB. Source failures are recorded in `sourceHealth` where possible, and one failed source does not prevent other sources from being processed.
 
 ### Per-Server Banner Timer Synchronization
 
