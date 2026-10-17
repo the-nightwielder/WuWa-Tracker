@@ -52,14 +52,14 @@
     {
       "id": "x-search-leaks",
       "kind": "google_news",
-      "query": "site:x.com Wuthering Waves upcoming Resonator version leak",
+      "query": "site:x.com Wuthering Waves upcoming Resonator version leak when:7d",
       "category": "leak-community",
       "priority": 58
     },
     {
       "id": "x-search-news",
       "kind": "google_news",
-      "query": "site:x.com/Wuthering_Waves",
+      "query": "site:x.com/Wuthering_Waves when:7d",
       "category": "official",
       "priority": 56
     },
