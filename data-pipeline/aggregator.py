@@ -143,6 +143,8 @@ def make_item(source, title, url, summary="", published=None, publisher="", publ
     if source['kind'] != 'official_json' and not GAME_CONTEXT.search(f"{title} {summary}"):
         return None
     status, confidence = status_for(source, title, summary, publisher_url)
+    if source['id'] == 'x-search-news' and status != 'OFFICIAL':
+        return None
     if status == 'OFFICIAL':
         source_type = 'Official source'
     elif source['id'].startswith('x-'):
@@ -1377,7 +1379,22 @@ def main():
     for item in sorted(by_url.values(), key=lambda z: (z['priority'], z['publishedAt']), reverse=True):
         key = re.sub(r"[^a-z0-9]", "", item['title'].lower())[:140]
         by_title.setdefault(key, item)
-    final = sorted(by_title.values(), key=lambda z: z['publishedAt'], reverse=True)[:300]
+
+    x_news_count = 0
+    x_leaks_count = 0
+    balanced_items = []
+    for item in sorted(by_title.values(), key=lambda z: z['publishedAt'], reverse=True):
+        if item.get("sourceId") == "x-search-news":
+            if x_news_count >= 4:
+                continue
+            x_news_count += 1
+        elif item.get("sourceId") == "x-search-leaks":
+            if x_leaks_count >= 3:
+                continue
+            x_leaks_count += 1
+        balanced_items.append(item)
+
+    final = balanced_items[:300]
 
     versions, banners, resonators, events = extract_entities(final)
     versions, banners, resonators, events = [merge_by_entity(x) for x in (versions, banners, resonators, events)]
