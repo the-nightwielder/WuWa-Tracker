@@ -52,30 +52,16 @@
     {
       "id": "x-search-leaks",
       "kind": "google_news",
-      "query": "site:x.com Wuthering Waves upcoming Resonator version leak beta datamine",
+      "query": "site:x.com Wuthering Waves upcoming Resonator version leak",
       "category": "leak-community",
       "priority": 58
     },
     {
       "id": "x-search-news",
       "kind": "google_news",
-      "query": "site:x.com/Wuthering_Waves official Wuthering Waves version update resonator banner",
+      "query": "site:x.com Wuthering Waves",
       "category": "official",
       "priority": 56
-    },
-    {
-      "id": "reddit-leaks",
-      "kind": "rss",
-      "url": "https://www.reddit.com/r/WutheringWavesLeaks/.rss?limit=50",
-      "category": "leak-community",
-      "priority": 50
-    },
-    {
-      "id": "reddit-main",
-      "kind": "rss",
-      "url": "https://www.reddit.com/r/WutheringWaves/.rss?limit=50",
-      "category": "community",
-      "priority": 48
     },
     {
       "id": "wuwabanners-schedule",
