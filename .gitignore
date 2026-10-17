@@ -16,3 +16,14 @@ signing.properties
 key.properties
 app/release/mapping.txt
 app/release/output-metadata.json
+
+# Private AI Project Memory Documentation
+HANDOVER.md
+PROJECT_KNOWLEDGE.md
+DECISIONS.md
+FLOW.md
+ARCHITECTURE.md
+CONSTRAINTS.md
+TEST CHECKLIST.md
+ROLLBACK.md
+docs/
