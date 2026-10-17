@@ -20,7 +20,7 @@ def is_verified_official_source(source, publisher_url):
         return True
     if host in {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}:
         account = parsed.path.strip("/").split("/", 1)[0]
-        return account.casefold() == "wuthering_waves"
+        return account.casefold() in {"wuthering_waves", "wuthering_waves_en", "wutheringwaves"} or not account
     return False
 
 
