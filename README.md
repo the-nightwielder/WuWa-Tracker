@@ -41,7 +41,6 @@ WuWa Tracker links to public sources and uses them as references for schedule an
 
 ### Community reports and leak discovery
 
-- [r/WutheringWavesLeaks](https://www.reddit.com/r/WutheringWavesLeaks/) and [r/WutheringWaves](https://www.reddit.com/r/WutheringWaves/) public RSS feeds
 - Public X posts discovered through Google News indexing
 - [WutheringWaves.gg](https://wutheringwaves.gg/), [Game8](https://game8.co/games/Wuthering-Waves), [GamingOnPhone](https://gamingonphone.com/), [Mone.gg](https://mone.gg/blog/wuthering-waves/), [UU TOP](https://uu-top.com/en/blog), [U7BUY](https://www.u7buy.com/), and [LDShop](https://ldshop.gg/blog/wuthering-waves/)
 
