@@ -31,10 +31,15 @@ class SecurityControlsTest(unittest.TestCase):
             read_bounded_chunks([b"abc", b"d"], 3)
 
     def test_official_category_alone_does_not_assign_official_status(self):
-        source = {"id": "x-search-news", "kind": "google_news", "category": "official"}
+        source = {"id": "official-news", "kind": "google_news", "category": "official"}
         item = make_item(source, "Wuthering Waves version 3.8 update", "https://news.google.com/rss/articles/example", publisher="unknown", publisher_url="https://news.google.com/")
         self.assertEqual("COMMUNITY", item["status"])
         self.assertNotEqual("Official source", item["sourceType"])
+
+    def test_unverified_x_search_news_items_are_discarded(self):
+        source = {"id": "x-search-news", "kind": "google_news", "category": "official"}
+        item = make_item(source, "Wuthering Waves version 3.8 update", "https://news.google.com/rss/articles/example", publisher="unknown", publisher_url="https://news.google.com/")
+        self.assertIsNone(item)
 
     def test_allowlisted_publisher_can_be_marked_official(self):
         source = {"id": "x-search-news", "kind": "google_news", "category": "official"}
