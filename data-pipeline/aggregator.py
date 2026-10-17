@@ -41,7 +41,6 @@ def bounded_get(url, **kwargs):
 
 WUWA_TERMS = re.compile(r"wuthering\s+waves|wuwa|resonator|astrite|lunite|convene|tower of adversity|endstate matrix|whimpering wastes|banner|tacet field|phantom", re.I)
 GAME_CONTEXT = re.compile(r"wuthering\s+waves|\bwuwa\b", re.I)
-REDDIT_TITLE_CONTEXT = re.compile(r"wuthering\s+waves|\bwuwa\b|resonator|banner|convene|\bversion\s*\d|\bv\d+\.\d+", re.I)
 LEAK_TERMS = re.compile(r"\b(leak|leaks|leaked|beta|datamine|datamined|test client|stc|subject to change|rumou?r|unconfirmed|sus|drip marketing leak)\b", re.I)
 OFFICIAL_TERMS = re.compile(r"official|version|maintenance|special program|special report|resonator reveal|profile|update notice|preview|event notice", re.I)
 VERSION_RE = re.compile(r"\b(?:(?:version|ver\.?|v|wuwa)\s*|wuthering\s+waves\s*)(\d+\.\d+)\b", re.I)
@@ -143,17 +142,11 @@ def make_item(source, title, url, summary="", published=None, publisher="", publ
         return None
     if source['kind'] != 'official_json' and not GAME_CONTEXT.search(f"{title} {summary}"):
         return None
-    if source['kind'] == 'rss' and not REDDIT_TITLE_CONTEXT.search(title):
-        return None
-    if 'megathread' in title.lower() and not REDDIT_TITLE_CONTEXT.search(title.replace('megathread', '')):
-        return None
     status, confidence = status_for(source, title, summary, publisher_url)
     if status == 'OFFICIAL':
         source_type = 'Official source'
     elif source['id'].startswith('x-'):
         source_type = 'X · indexed by Google News'
-    elif source['kind'] == 'rss':
-        source_type = 'Reddit'
     else:
         source_type = 'Website'
     return {
