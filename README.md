@@ -1,17 +1,22 @@
 # WuWa Tracker
 
-An unofficial Android companion for **Wuthering Waves**. WuWa Tracker provides server-reset countdowns, daily and endgame checklists, banner schedules, and a source-linked intelligence feed for official announcements, community reports, and unconfirmed leaks.
+An unofficial Android companion for **Wuthering Waves**. WuWa Tracker provides server-reset countdowns, daily, weekly, and endgame checklists, banner schedules, and a source-linked intelligence feed for official announcements, community reports, and unconfirmed leaks.
 
 This project was developed with substantial AI assistance using an informal “vibe coding” workflow. It is a fan project, not an official Kuro Games product, and is not affiliated with or endorsed by Kuro Games.
 
 ## Features
 
+- **Custom Chibi Navigation Icons & 5-Tab Navigation:** High-definition bottom navigation featuring custom Wuthering Waves chibi stickers (**Female Rover**, **Hiyuki**, **Jinhsi**, **Shorekeeper**, **Cartethyia**) across 5 dedicated tabs (`Home`, `Endgame`, `Banners`, `Intel`, `Settings`) with glowing gold active tab styling.
+- **Top Active Redemption Codes Card & 1-Tap Copy:** Automatically extracts active promo codes (e.g. `WUTHERINGGIFT`) from recent feed announcements and displays a prominent card at the top of the Intel tab with gold **`[ 📋 Copy Code ]`** 1-tap buttons for instant clipboard copying.
+- **Intel Live Search & Keyword Filter:** Real-time search bar on the Intel tab allowing users to filter news articles, codes, or character names (`"Suoming"`, `"maintenance"`, `"codes"`) on the fly.
+- **Live Banner Remaining Countdown Ribbon:** Full-width solid gold countdown ribbon across the top edge of active and upcoming banner cards (**`Ends in 18d 4h 41m`**), guaranteeing uniform card heights across all regional servers.
+- **Today's Earned Astrites Counter & Weekly Checklist (+160 Astrites):** Dynamic counter tracking daily (+60 Daily Activities + +90 Lunite) and weekly checklist rewards (+160 Weekly Activity Points for Phantasma Dreamland Rhapsody / Fantasies of the Thousand Gateways). Same-day tracking ensures +160 Astrites contributes to today's earned total only on the day completed.
+- **Offline-First Artwork Caching:** Instant 0ms image rendering from local disk cache (`cacheDir/banner-artwork`), allowing all resonator and weapon artwork to load instantly and work 100% offline.
 - **Per-Server Reset & Reminders:** Daily reset countdowns for America, Europe, Asia, SEA, and HMT servers, displayed in the device’s local time. Optional reset and custom reminders.
 - **Live Server-Synced Banner Schedules:** Active and upcoming banner cards display exact start and end dates/times synced directly with live Prydwen and Game8 server countdowns across all regional servers (**America**, **Europe**, **Asia**, **HMT**, and **SEA**).
 - **Dynamic Server Switching & Local Time Conversion:** Switching the server in the app instantly updates the banner schedule to match that server's regional schedule, converted side-by-side with your device's auto-detected local timezone (e.g. `IST`, `EDT`, `PST`, `BST`, `SGT`).
 - **5-Star Showcase & Color-Coded Badges:** Resonator banners highlight 5-star debut and rerun resonators (filtering out 4-star rate-ups) and pair them with signature weapons using color-coded badges (`[ 5★ DEBUT ]`, `[ 5★ RERUN ]`, `[ 5★ SIGNATURE ]`, `[ 5★ FEATURED ]`).
-- **Uncongested Card Design:** Consolidated timeline headers at the top of expanded cards keep individual character and weapon rows smooth, spacious, and easy to scan.
-- **Checklists & Endgame Tracking:** Daily and Lunite checklists, plus monthly Endgame checklist reminders for Tower of Adversity, Whimpering Wastes, and Endstate Matrix.
+- **Checklists & Endgame Tracking:** Daily, Lunite, and Weekly checklists, plus monthly Endgame checklist reminders for Tower of Adversity, Whimpering Wastes, and Endstate Matrix.
 - **Intelligence Feed:** Categorized feed separating official confirmations, community reports, and unconfirmed leaks with source links and evidence labels.
 
 The monthly Endgame checkboxes reset at the start of each calendar month in the selected game server’s time zone. They are convenience reminders; they do not track the individual modes’ live rotation start and end dates. The Endgame tab can display source-derived dates when the feed provides them, but its built-in recurring entries do not have exact dates. Use the in-game timers for current rotation timing.
@@ -48,7 +53,7 @@ The sources above retain their own content, names, and rights. Links and attribu
 
 ### Images and game intellectual property
 
-Resonator and weapon image URLs are sourced from the [Wuthering Waves Wiki on Fandom](https://wutheringwaves.fandom.com/) when a matching image is available. The feed carries image URLs rather than the image files; the app fetches thumbnails from Fandom at runtime and caches them on the device for the relevant banner period.
+Resonator and weapon image URLs are sourced from the [Wuthering Waves Wiki on Fandom](https://wutheringwaves.fandom.com/) when a matching image is available. The feed carries image URLs rather than the image files; the app fetches thumbnails from Fandom at runtime and caches them on the device for offline rendering.
 
 The app also includes visual resources in its Android project, including tab backgrounds and launcher artwork. Some may depict Wuthering Waves characters or other game-related material. Wuthering Waves, its characters, logos, and original game artwork belong to their respective rights holders, including Kuro Games. The project’s code terms below do not license that material. Rights holders can contact the maintainer through the [repository issue tracker](https://github.com/the-nightwielder/WuWa-Tracker/issues) to raise a concern.
 
@@ -70,4 +75,4 @@ No open-source license is currently granted for this repository’s original sou
 2. Build the app using the included Gradle wrapper.
 3. For public distribution, create a properly signed release APK. Never commit the signing key or passwords to the repository.
 
-The project targets Android API 35. The current app version is **1.3.0** (version code **130**).
+The project targets Android API 35. The current app version is **1.4.0** (version code **140**).
