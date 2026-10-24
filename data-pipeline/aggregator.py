@@ -778,9 +778,6 @@ def _game8_banner_article(url):
 
 def game8_banner_snapshot(source, soup, text, url, now):
     """Discover the latest Game8 banner guide and its current/upcoming character pages."""
-    overview = _game8_overview_snapshots(soup, url, now)
-    if overview:
-        return overview
     guide_links = [(clean_text(anchor.get_text(" ", strip=True)), urljoin(url, anchor["href"]))
                    for anchor in soup.find_all("a", href=True)
                    if urlsplit(urljoin(url, anchor["href"])).hostname in {"game8.co", "www.game8.co"}]
@@ -808,9 +805,6 @@ def game8_banner_snapshot(source, soup, text, url, now):
         soup = BeautifulSoup(body.decode(response.encoding or "utf-8", errors="replace"), "html.parser")
         text = clean_text(soup.get_text(" ", strip=True))
 
-    overview = _game8_overview_snapshots(soup, url, now)
-    if overview:
-        return overview
     # The evergreen Game8 guide links to character articles using only the
     # character name (for example, "Hsin"). Requiring "banner" or "rerun" in
     # the link label/path silently discarded every useful page, which left the
@@ -862,7 +856,7 @@ def game8_banner_snapshot(source, soup, text, url, now):
         if len(record["serverTimes"]) > len(group["serverTimes"]):
             group["serverTimes"] = record["serverTimes"]
     output = []
-    current = datetime.now(timezone.utc)
+    current = _game8_utc_datetime(now)
     for (version, phase), group in grouped.items():
         times = group["serverTimes"]
         sea = times.get("SEA", {})
@@ -880,7 +874,12 @@ def game8_banner_snapshot(source, soup, text, url, now):
             "confidence": 0.98, "sourceLabel": "Game8 Banner Schedule",
             "sourceUrls": list(dict.fromkeys(group["urls"])), "snapshotAt": now,
         })
-    return output or None
+    if output:
+        return output
+    overview = _game8_overview_snapshots(soup, url, now)
+    if overview:
+        return overview
+    return None
 
 
 def _game8_section(headings, predicate):
@@ -1267,7 +1266,12 @@ def prydwen_banner_snapshot(soup, text, url, now):
             "startAt": start_at, "endAt": end_at, "serverTimes": server_times, "status": "COMMUNITY", "scheduleStatus": section_status,
             "confidence": 0.9, "sourceLabel": "Prydwen Banner Overview", "sourceUrls": [url], "snapshotAt": now,
         })
-    return output or None
+    if output:
+        return output
+    overview = _game8_overview_snapshots(soup, url, now)
+    if overview:
+        return overview
+    return None
 
 
 def main():
