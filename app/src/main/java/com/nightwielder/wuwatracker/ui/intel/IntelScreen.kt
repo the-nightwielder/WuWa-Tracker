@@ -37,8 +37,6 @@ import java.util.Locale
 
 private data class IntelGroup(val title: String, val status: String, val emptyMessage: String)
 
-private fun dateOnly(i: Instant) = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.getDefault()).withZone(ZoneId.systemDefault()).format(i)
-
 private fun formatBannerTime(i: Instant, server: Server, usesServerTime: Boolean): String =
     DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a", Locale.US)
         .withZone(if (usesServerTime) server.bannerZone else ZoneId.systemDefault()).format(i)
@@ -46,11 +44,6 @@ private fun formatBannerTime(i: Instant, server: Server, usesServerTime: Boolean
 private fun phaseLabel(phase: Int?): String? = when (phase) {
     1 -> "Phase I"; 2 -> "Phase II"; 3 -> "Phase III"; 4 -> "Phase IV"; else -> null
 }
-
-private fun BannerIntel.relevant(version: String, now: Instant): Boolean =
-    if (scheduleStatus.equals("TEASED", true)) true
-    else if (this.version != null) compareVersion(this.version, version) >= 0
-    else (endAt?.isAfter(now) == true || startAt?.isAfter(now) == true)
 
 private fun FeedItem.isNextVersionLeak(currentVersion: String): Boolean {
     val text = title + " " + summary
@@ -108,51 +101,100 @@ private fun relativeTime(raw: String): String {
     }
 }
 
+fun extractPromoCodes(text: String): List<String> {
+    val pattern = Regex("\\b[A-Z0-9]{6,12}\\b")
+    val exclude = setOf("WUTHERING", "RESONATOR", "ASTRITES", "LUNITE", "CONVENE", "SOLARIS", "JADEHAVEN", "KUMOKIRI", "MOONGAZER", "COMMUNITY", "OFFICIAL", "PREVIEW", "VERSION", "UPDATE", "SUMMARY", "DESKTOP")
+    return pattern.findAll(text)
+        .map { it.value }
+        .filter { it !in exclude && !it.startsWith("HTTP") && it.any { c -> c.isDigit() } }
+        .distinct()
+        .toList()
+}
+
+fun copyToClipboard(context: Context, label: String, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    val clip = android.content.ClipData.newPlainText(label, text)
+    clipboard.setPrimaryClip(clip)
+    android.widget.Toast.makeText(context, "Copied $text to clipboard!", android.widget.Toast.LENGTH_SHORT).show()
+}
+
+private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
+    if (scheduleStatus.equals("TEASED", true)) true
+    else if (this.version != null) compareVersion(this.version, version) >= 0
+    else (endAt?.isAfter(now) == true || startAt?.isAfter(now) == true)
+
 @Composable fun IntelScreen(state: UiState, now: Instant, syncing: Boolean, syncMessage: String, onRefresh: () -> Unit, onToggle: (String) -> Unit, modifier: Modifier) {
-    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var searchQuery by remember { mutableStateOf("") }
     val groups = listOf(IntelGroup("Official Confirmations", "OFFICIAL", "No recent official updates for this version."), IntelGroup("Unconfirmed Leaks", "LEAK", "No upcoming version-relevant leak reports."), IntelGroup("Community Reports", "COMMUNITY", "No recent version-relevant community reports."))
     val version = state.version.takeIf { it != "Unknown" } ?: "3.7"
     val feed = state.feedItems.filter { it.relevant(version, now) }.sortedByDescending { runCatching { Instant.parse(it.publishedAt) }.getOrDefault(Instant.EPOCH) }
-    val banners = state.banners.filter { it.relevant(version, now) }
-    fun oneCardPerPhase(rows: List<BannerIntel>) = rows.groupBy { "${it.version.orEmpty()}|${it.phase ?: 0}" }.values.mapNotNull { phaseRows -> phaseRows.maxByOrNull { (if (it.serverTimes.keys.containsAll(setOf("AMERICA", "EUROPE", "ASIA", "HMT", "SEA"))) 1000 else 0) + (if (it.sourceLabel.contains("Prydwen", true)) 200 else 0) + (if (it.sourceLabel.contains("Game8", true)) 100 else 0) + (if (it.weaponClaim.isNullOrBlank()) 0 else 50 + it.weaponClaim.length) + (it.weaponImages.size * 10) + (it.resonatorImages.size * 5) } }
-    fun timing(b: BannerIntel): BannerServerTiming? = b.serverTimes[state.server.name]?.takeIf { it.startAt != null && it.endAt != null }
-    val active = oneCardPerPhase(banners.filter { val t = timing(it); (t != null && t.startAt!! <= now && t.endAt!! > now) || (t == null && it.scheduleStatus.equals("CURRENT", true)) }).sortedBy { timing(it)?.startAt ?: Instant.MIN }
-    val upcoming = oneCardPerPhase(banners.filter { timing(it)?.startAt?.isAfter(now) == true || (timing(it) == null && it.scheduleStatus.equals("UPCOMING", true)) }).sortedBy { timing(it)?.startAt ?: Instant.MAX }
-    val teased = banners.filter { it.scheduleStatus.equals("TEASED", true) && timing(it) == null }.distinctBy { it.title.lowercase(Locale.ROOT) + it.version.orEmpty() }
-    fun cacheEnd(b: BannerIntel): Instant? {
-        timing(b)?.endAt?.let { return it }
-        val baseStart = timing(b)?.startAt
-        val laterPhase = state.banners.asSequence().filter { candidate ->
-            val candidateStart = timing(candidate)?.startAt
-            candidate.version == b.version && candidate.phase != null && b.phase != null && candidate.phase > b.phase && candidateStart != null && (baseStart == null || candidateStart.isAfter(baseStart))
-        }.mapNotNull { timing(it)?.startAt }.minOrNull()
-        if (laterPhase != null) return laterPhase
-        return b.version?.let { v ->
-            state.banners.asSequence().filter { candidate ->
-                val candidateStart = timing(candidate)?.startAt
-                candidate.version != null && compareVersion(candidate.version, v) > 0 && candidateStart != null && (baseStart == null || candidateStart.isAfter(baseStart))
-            }.mapNotNull { timing(it)?.startAt }.minOrNull()
-        }
+    val banners = state.banners.filter { it.relevantBanner(version, now) }
+
+    val activeCodes = remember(feed) {
+        feed.flatMap { extractPromoCodes(it.title + " " + it.summary) }.distinct().take(4)
     }
-    LaunchedEffect(state.banners) { withContext(Dispatchers.IO) { pruneArtworkCache(appContext) } }
+
+    val filteredFeed = remember(feed, searchQuery) {
+        if (searchQuery.isBlank()) feed
+        else feed.filter { it.title.contains(searchQuery, true) || it.summary.contains(searchQuery, true) || it.source.contains(searchQuery, true) }
+    }
+
     ArtworkScreen(modifier, com.nightwielder.wuwatracker.R.drawable.bg_intel) {
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item { Text("Intelligence", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color(0xFFF3E9FF)) }
+            item { Text("Intelligence Feed", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color(0xFFF3E9FF)) }
             item { InfoCard("Public Intelligence Feed", if (syncing) "Refreshing…" else feed.size.toString() + " version-relevant reports · " + banners.size + " relevant banner claims", listOf(syncMessage.takeIf { it.isNotBlank() }, state.lastSync.takeIf { it.isNotBlank() }?.let { "Last Sync: " + relativeTime(it) }).filterNotNull().joinToString(" · ").ifBlank { "Updated from free public sources." }) }
             item { Button(onClick = onRefresh, enabled = !syncing, modifier = Modifier.fillMaxWidth()) { Text(if (syncing) "Refreshing…" else "Refresh Intelligence Feed") } }
-            item { Text("Current version · " + version, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFFFFD994)) }
-            item { Text("Active Resonator / Weapon Banners", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFE7DAFF)) }
-            if (active.isEmpty()) item { InfoCard("Live schedule", "No verified timing for your selected server is available in the feed.", "") }
-            items(active) { b -> BannerOverviewCard(b, true, state.server, cacheEnd(b)?.toEpochMilli() ?: Long.MAX_VALUE) }
-            item { Text("Upcoming Resonator / Weapon Banners", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFBFE8E2)) }
-            if (upcoming.isEmpty()) item { InfoCard("Upcoming schedule", "No verified upcoming timing for your selected server is available in the feed.", "Upcoming banners will appear when a source provides server-specific times.") }
-            items(upcoming) { b -> BannerOverviewCard(b, false, state.server, cacheEnd(b)?.toEpochMilli() ?: Long.MAX_VALUE) }
-            if (teased.isNotEmpty()) {
-                item { Text("Teased Resonator Banners", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFE7DAFF)) }
-                items(teased) { b -> BannerOverviewCard(b, false, state.server, Long.MAX_VALUE) }
+
+            // Top Active Redemption Codes Section
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF292438)), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("🎁 Active Redemption Codes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFFFD994))
+                        if (activeCodes.isEmpty()) {
+                            Text("No active promo codes found in recent feed announcements.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
+                        } else {
+                            activeCodes.forEach { code ->
+                                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Column {
+                                        Text(code, fontWeight = FontWeight.Bold, color = Color.White)
+                                        Text("Livestream / Event Reward", style = MaterialTheme.typography.bodySmall, color = Color(0xFFBFE8E2))
+                                    }
+                                    Button(
+                                        onClick = { copyToClipboard(context, "Promo Code", code) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FFD994), contentColor = Color(0xFFFFD994)),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("📋 Copy: $code", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
+
+            // Search Filter Bar
+            item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search news, codes, or keywords…", color = Color.LightGray) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color(0x3326323C),
+                        unfocusedContainerColor = Color(0x2226323C),
+                        focusedBorderColor = Color(0xFFFFD994),
+                        unfocusedBorderColor = Color.Gray,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+            }
+
             groups.forEach { g ->
-                val candidates = feed.filter { it.status.equals(g.status, true) && (g.status != "LEAK" || it.isNextVersionLeak(version)) }
+                val candidates = filteredFeed.filter { it.status.equals(g.status, true) && (g.status != "LEAK" || it.isNextVersionLeak(version)) }
                 val rows = (if (g.status == "LEAK") candidates.distinctBy { it.leakDedupKey(version, state.resonators) } else candidates).take(25)
                 val shownArticleUrls = rows.map { it.url }.toSet()
                 val gb = banners.filter { it.scheduleStatus != "TEASED" && it.status.equals(g.status, true) && (g.status != "LEAK" || (it.version?.let { v -> compareVersion(v, version) > 0 } == true && it.sourceUrls.none { url -> url in shownArticleUrls })) }.take(8)
@@ -197,11 +239,28 @@ private fun relativeTime(raw: String): String {
     }
 }
 
-@Composable fun BannerOverviewCard(b: BannerIntel, current: Boolean, server: Server, cacheExpiresAt: Long) {
+@Composable fun BannerOverviewCard(b: BannerIntel, current: Boolean, server: Server, cacheExpiresAt: Long, now: Instant = Instant.now()) {
     var expanded by remember(b.title, current) { mutableStateOf(false) }
     val serverTiming = b.serverTimes[server.name]?.takeIf { it.startAt != null && it.endAt != null }
     val startAt = serverTiming?.startAt ?: b.startAt
     val endAt = serverTiming?.endAt ?: b.endAt
+    val durationText = remember(startAt, endAt, now, current) {
+        if (current && endAt != null && endAt.isAfter(now)) {
+            val d = Duration.between(now, endAt)
+            val s = d.seconds.coerceAtLeast(0)
+            val days = s / 86400
+            val hours = (s % 86400) / 3600
+            val mins = (s % 3600) / 60
+            "Ends in ${days}d ${hours}h ${mins}m"
+        } else if (!current && startAt != null && startAt.isAfter(now)) {
+            val d = Duration.between(now, startAt)
+            val s = d.seconds.coerceAtLeast(0)
+            val days = s / 86400
+            val hours = (s % 86400) / 3600
+            val mins = (s % 3600) / 60
+            "Starts in ${days}d ${hours}h ${mins}m"
+        } else null
+    }
     val scheduleRange = listOfNotNull(startAt?.let { formatBannerTime(it, server, serverTiming != null) }, endAt?.let { formatBannerTime(it, server, serverTiming != null) }).let { times -> if (times.size == 2) "${times[0]} – ${times[1]}" else times.firstOrNull().orEmpty() }
     val userTzCode = runCatching {
         val tz = java.util.TimeZone.getDefault()
@@ -251,58 +310,74 @@ private fun relativeTime(raw: String): String {
     val mappedFallback = names.mapNotNull { timelineFallback[it.lowercase(Locale.ROOT)] }
     val weapons = (feedWeapons + mappedFallback).distinctBy { it.lowercase(Locale.ROOT) }.take(3)
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (current) Color(0xFF292438) else Color(0xFF26323C))) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }, verticalAlignment = Alignment.CenterVertically) {
-                val lead = names.firstOrNull().orEmpty()
-                if (!expanded) {
-                    ResonatorArtwork(lead, b.resonatorImages.artworkFor(lead), cacheExpiresAt)
-                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text(if (b.scheduleStatus.equals("TEASED", true)) "TEASED BANNER" else if (current) "ACTIVE BANNER" else "UPCOMING BANNER", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        Text(lead.ifBlank { b.title }, style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp), fontWeight = FontWeight.Bold, color = if (current) Color(0xFFFFD994) else Color(0xFFBFE8E2))
-                        Text(bannerSummary, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
-                    }
-                } else {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(if (b.scheduleStatus.equals("TEASED", true)) "TEASED BANNER DETAILS" else if (current) "ACTIVE BANNER DETAILS" else "UPCOMING BANNER DETAILS", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = if (current) Color(0xFFFFD994) else Color(0xFFBFE8E2))
-                        Text(expandedSummary, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
-                    }
+        Column {
+            durationText?.let { text ->
+                Surface(
+                    color = Color(0xFFFFD994),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFF16131D),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    )
                 }
-                ChevronControl(!expanded)
             }
-            if (expanded && b.status.equals("COMMUNITY", true)) Text("Community source · ${b.sourceLabel}", style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
-            if (expanded) {
-                Text("Resonators", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (current) Color(0xFFFFD994) else Color(0xFFBFE8E2))
-                names.forEachIndexed { index, name ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        ResonatorArtwork(name, b.resonatorImages.artworkFor(name), cacheExpiresAt)
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(name, fontWeight = FontWeight.SemiBold, color = Color.White)
-                                val (bText, bBg, bFg) = if (index == 0) Triple("5★ DEBUT", Color(0x33FFD994), Color(0xFFFFD994)) else Triple("5★ RERUN", Color(0x33BFE8E2), Color(0xFFBFE8E2))
-                                BadgePill(bText, bBg, bFg)
-                            }
-                            val sub = listOfNotNull("5★ Resonator", b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }).joinToString(" · ")
-                            Text(sub, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }, verticalAlignment = Alignment.CenterVertically) {
+                    val lead = names.firstOrNull().orEmpty()
+                    if (!expanded) {
+                        ResonatorArtwork(lead, b.resonatorImages.artworkFor(lead), cacheExpiresAt)
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(if (b.scheduleStatus.equals("TEASED", true)) "TEASED BANNER" else if (current) "ACTIVE BANNER" else "UPCOMING BANNER", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            Text(lead.ifBlank { b.title }, style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp), fontWeight = FontWeight.Bold, color = if (current) Color(0xFFFFD994) else Color(0xFFBFE8E2))
+                            Text(bannerSummary, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
+                        }
+                    } else {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(if (b.scheduleStatus.equals("TEASED", true)) "TEASED BANNER DETAILS" else if (current) "ACTIVE BANNER DETAILS" else "UPCOMING BANNER DETAILS", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = if (current) Color(0xFFFFD994) else Color(0xFFBFE8E2))
+                            Text(expandedSummary, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
                         }
                     }
+                    ChevronControl(!expanded)
                 }
-                HorizontalDivider()
-                Text("Weapons", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (current) Color(0xFFFFD994) else Color(0xFFBFE8E2))
-                if (weapons.isEmpty()) Text("Weapon names will appear after the updated schedule feed is published.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA)) else weapons.forEachIndexed { index, name ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        WeaponArtwork(name, b.weaponImages[name], cacheExpiresAt)
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(name, fontWeight = FontWeight.SemiBold, color = Color.White)
-                                val (wText, wBg, wFg) = if (index == 0) Triple("5★ SIGNATURE", Color(0x33E2DDEA), Color(0xFFF3E9FF)) else Triple("5★ FEATURED", Color(0x22FFD994), Color(0xFFE2DDEA))
-                                BadgePill(wText, wBg, wFg)
+                if (expanded && b.status.equals("COMMUNITY", true)) Text("Community source · ${b.sourceLabel}", style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
+                if (expanded) {
+                    Text("Resonators", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (current) Color(0xFFFFD994) else Color(0xFFBFE8E2))
+                    names.forEachIndexed { index, name ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            ResonatorArtwork(name, b.resonatorImages.artworkFor(name), cacheExpiresAt)
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(name, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                    val (bText, bBg, bFg) = if (index == 0) Triple("5★ DEBUT", Color(0x33FFD994), Color(0xFFFFD994)) else Triple("5★ RERUN", Color(0x33BFE8E2), Color(0xFFBFE8E2))
+                                    BadgePill(bText, bBg, bFg)
+                                }
+                                val sub = listOfNotNull("5★ Resonator", b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }).joinToString(" · ")
+                                Text(sub, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
                             }
-                            val sub = listOfNotNull("5★ Weapon", b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }).joinToString(" · ")
-                            Text(sub, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
                         }
                     }
+                    HorizontalDivider()
+                    Text("Weapons", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (current) Color(0xFFFFD994) else Color(0xFFBFE8E2))
+                    if (weapons.isEmpty()) Text("Weapon names will appear after the updated schedule feed is published.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA)) else weapons.forEachIndexed { index, name ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            WeaponArtwork(name, b.weaponImages[name], cacheExpiresAt)
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(name, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                    val (wText, wBg, wFg) = if (index == 0) Triple("5★ SIGNATURE", Color(0x33E2DDEA), Color(0xFFF3E9FF)) else Triple("5★ FEATURED", Color(0x22FFD994), Color(0xFFE2DDEA))
+                                    BadgePill(wText, wBg, wFg)
+                                }
+                                val sub = listOfNotNull("5★ Weapon", b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }).joinToString(" · ")
+                                Text(sub, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
+                            }
+                        }
+                    }
+                    if (weapons.isNotEmpty() && b.status.equals("COMMUNITY", true)) Text("Weapon pairings are community schedule references.", style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
                 }
-                if (weapons.isNotEmpty() && b.status.equals("COMMUNITY", true)) Text("Weapon pairings are community schedule references.", style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
             }
         }
     }
@@ -370,13 +445,29 @@ private fun Map<String, String>.artworkFor(name: String): String? = entries.firs
 }
 
 @Composable fun FeedCard(item: FeedItem) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val label = if (item.status == "LEAK") "LEAK · UNCONFIRMED" else item.status
     val tint = when (item.status.uppercase()) { "OFFICIAL" -> Color(0xFF314A5B); "LEAK" -> Color(0xFF523241); else -> Color(0xFF3A354D) }
+    val codes = remember(item.title, item.summary) { extractPromoCodes(item.title + " " + item.summary) }
+
     Card(Modifier.fillMaxWidth().clickable { openUrl(item.url) }, colors = CardDefaults.cardColors(containerColor = tint)) {
         Column(Modifier.padding(16.dp), Arrangement.spacedBy(6.dp)) {
-            Text("$label", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFFFD68A))
+            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFFFD68A))
             Text(item.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             if (item.summary.isNotBlank() && !(item.status.equals("LEAK", true) && item.summary.trim().equals(item.title.trim(), true))) Text(item.summary)
+            if (codes.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    codes.forEach { code ->
+                        Button(
+                            onClick = { copyToClipboard(context, "Promo Code", code) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FFD994), contentColor = Color(0xFFFFD994)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text("📋 Copy Code: $code", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
             Text("Source: ${item.source} · Destination: ${Uri.parse(item.url).host.orEmpty()}", style = MaterialTheme.typography.bodySmall)
         }
     }
