@@ -195,7 +195,7 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
 
             groups.forEach { g ->
                 val candidates = filteredFeed.filter { it.status.equals(g.status, true) && (g.status != "LEAK" || it.isNextVersionLeak(version)) }
-                val rows = (if (g.status == "LEAK") candidates.distinctBy { it.leakDedupKey(version, state.resonators) } else candidates).take(25)
+                val rows = (if (g.status == "LEAK") candidates.distinctBy { it.leakDedupKey(version, state.resonators) } else candidates).take(35)
                 val shownArticleUrls = rows.map { it.url }.toSet()
                 val gb = banners.filter { it.scheduleStatus != "TEASED" && it.status.equals(g.status, true) && (g.status != "LEAK" || (it.version?.let { v -> compareVersion(v, version) > 0 } == true && it.sourceUrls.none { url -> url in shownArticleUrls })) }.take(8)
                 val gr = state.resonators.filter { it.status.equals(g.status, true) && if (g.status == "LEAK") it.version?.let { v -> compareVersion(v, version) > 0 } == true && it.sourceUrls.none { url -> url in shownArticleUrls } else (it.version?.let { v -> compareVersion(v, version) >= 0 } == true || feed.any { n -> n.title.contains(it.name, true) || n.summary.contains(it.name, true) }) }.take(8)
