@@ -331,9 +331,13 @@ private fun Map<String, String>.artworkFor(name: String): String? = entries.firs
     var image by remember(name, url, expiresAt) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(name, url, expiresAt) {
         image = withContext(Dispatchers.IO) {
+            val identity = "weapon:${name.trim().lowercase(Locale.ROOT)}"
+            val diskCached = loadArtworkFromDisk(context, identity, .72f, .5f)
+            if (diskCached != null) return@withContext diskCached
+
             val preferred = url?.takeIf(::isFandomArtUrl)
-            val first = preferred?.let { loadArtwork(context, "weapon:${name.trim().lowercase(Locale.ROOT)}", it, .72f, expiresAt) }
-            first ?: fandomPageImage(name, "weapon")?.let { loadArtwork(context, "weapon:${name.trim().lowercase(Locale.ROOT)}", it, .72f, expiresAt) }
+            val first = preferred?.let { loadArtwork(context, identity, it, .72f, expiresAt) }
+            first ?: fandomPageImage(name, "weapon")?.let { loadArtwork(context, identity, it, .72f, expiresAt) }
         }
     }
     if (image != null) Image(image!!, name, contentScale = ContentScale.Crop, modifier = Modifier.size(68.dp).clip(RoundedCornerShape(12.dp))) else ArtworkInitial(name, true)
@@ -344,9 +348,13 @@ private fun Map<String, String>.artworkFor(name: String): String? = entries.firs
     var image by remember(url, description, expiresAt) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(url, description, expiresAt) {
         image = withContext(Dispatchers.IO) {
+            val identity = "resonator:${description.trim().lowercase(Locale.ROOT)}"
+            val diskCached = loadArtworkFromDisk(context, identity, .96f, 0f)
+            if (diskCached != null) return@withContext diskCached
+
             val preferred = url?.takeIf(::isFandomArtUrl)
-            val first = preferred?.let { loadArtwork(context, "resonator:${description.trim().lowercase(Locale.ROOT)}", it, .96f, expiresAt, 0f) }
-            first ?: fandomPageImage(description, "resonator")?.let { loadArtwork(context, "resonator:${description.trim().lowercase(Locale.ROOT)}", it, .96f, expiresAt, 0f) }
+            val first = preferred?.let { loadArtwork(context, identity, it, .96f, expiresAt, 0f) }
+            first ?: fandomPageImage(description, "resonator")?.let { loadArtwork(context, identity, it, .96f, expiresAt, 0f) }
         }
     }
     if (image != null) Image(image!!, description, contentScale = ContentScale.Crop, modifier = Modifier.size(68.dp).clip(CircleShape)) else ArtworkInitial(description)
