@@ -23,6 +23,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.nightwielder.wuwatracker.data.*
 import com.nightwielder.wuwatracker.model.*
 import com.nightwielder.wuwatracker.ui.*
+import com.nightwielder.wuwatracker.ui.banners.*
 import com.nightwielder.wuwatracker.ui.intel.*
 import com.nightwielder.wuwatracker.worker.*
 import kotlinx.coroutines.delay
@@ -30,11 +31,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.DayOfWeek
 import java.time.Duration
 import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 
 val Context.dataStore by preferencesDataStore("wuwa_tracker")
@@ -99,6 +102,16 @@ private fun WuWaTrackerRoot() {
         }
     }
 
+    var weeklyResetServer by remember { mutableStateOf<Server?>(null) }
+    LaunchedEffect(weeklyResetKey(state.server, now)) {
+        val serverChanged = weeklyResetServer != null && weeklyResetServer != state.server
+        weeklyResetServer = state.server
+        if (!serverChanged && state.weeklyDone) {
+            state = state.copy(weeklyDone = false)
+            saveState(context, state)
+        }
+    }
+
     LaunchedEffect(state.server, state.reminderEnabled, state.reminderLead) {
         if (state.reminderEnabled && state.reminderLead >= 0) scheduleResetAlarm(state.server, state.reminderLead) else cancelResetAlarm()
     }
@@ -139,11 +152,11 @@ private fun WuWaTrackerRoot() {
             },
             bottomBar = {
                 NavigationBar(containerColor = Color(0xEE16131D)) {
-                    listOf("Home", "Endgame", "Intel", "Settings").forEachIndexed { i, label ->
+                    listOf("Home", "Endgame", "Banners", "Intel", "Settings").forEachIndexed { i, label ->
                         NavigationBarItem(
                             selected = tab == i,
                             onClick = { tab = i },
-                            icon = { Text(listOf("⌂", "⚔", "◷", "⚙")[i]) },
+                            icon = { Text(listOf("⌂", "⚔", "🚩", "📰", "⚙")[i]) },
                             label = { Text(label) }
                         )
                     }
@@ -153,7 +166,8 @@ private fun WuWaTrackerRoot() {
             when (tab) {
                 0 -> HomeScreen(state, now, durationText(Duration.between(now, reset.toInstant())), localReset, update, Modifier.padding(padding))
                 1 -> EndgameScreen(state, now, Modifier.padding(padding))
-                2 -> IntelScreen(state, now, syncing, syncMessage, onRefreshFeed, { key -> update { st -> st.copy(collapsedSections = if (key in st.collapsedSections) st.collapsedSections - key else st.collapsedSections + key) } }, Modifier.padding(padding))
+                2 -> BannersScreen(state, now, Modifier.padding(padding))
+                3 -> IntelScreen(state, now, syncing, syncMessage, onRefreshFeed, { key -> update { st -> st.copy(collapsedSections = if (key in st.collapsedSections) st.collapsedSections - key else st.collapsedSections + key) } }, Modifier.padding(padding))
                 else -> SettingsScreen(state, update, modifier = Modifier.padding(padding))
             }
         }
@@ -182,6 +196,11 @@ private fun WuWaTrackerRoot() {
 
 fun cycleKey(server: Server, now: Instant = Instant.now()) = server.name + "-" + YearMonth.from(now.atZone(ZoneId.of(server.zone)))
 fun resetKey(server: Server, now: Instant = Instant.now()) = "${server.name}-${nextReset(server, now).minusNanos(1).toLocalDate()}"
+fun weeklyResetKey(server: Server, now: Instant = Instant.now()): String {
+    val zdt = now.atZone(ZoneId.of(server.zone))
+    val monday = zdt.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toLocalDate()
+    return "${server.name}-$monday"
+}
 
 fun durationText(d: Duration): String {
     val s = d.seconds.coerceAtLeast(0)
@@ -198,13 +217,17 @@ suspend fun loadState(context: Context): UiState {
     val p = context.dataStore.data.first()
     val server = runCatching { Server.valueOf(p[stringPreferencesKey("server")] ?: Server.SEA.name) }.getOrDefault(Server.SEA)
     val key = resetKey(server)
+    val weeklyKey = weeklyResetKey(server)
     val stored = p[stringPreferencesKey("reset_key")]
+    val storedWeekly = p[stringPreferencesKey("weekly_reset_key")]
     val raw = p[stringPreferencesKey("cached_feed")]
     val f = runCatching { parseFeed(raw) }.getOrDefault(FeedResult(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), null))
     return UiState(
         server = server,
         dailyDone = if (stored == key) (p[booleanPreferencesKey("daily")] ?: false) else false,
         luniteDone = if (stored == key) (p[booleanPreferencesKey("lunite")] ?: false) else false,
+        weeklyDone = if (storedWeekly == weeklyKey) (p[booleanPreferencesKey("weekly")] ?: false) else false,
+        weeklyDoneDate = p[stringPreferencesKey("weekly_done_date")] ?: "",
         reminderEnabled = p[booleanPreferencesKey("reminder")] ?: true,
         reminderLead = p[intPreferencesKey("lead")]?.let { if (it == -1) -1 else it.coerceIn(0, 60) } ?: 0,
         version = p[stringPreferencesKey("version")] ?: "Unknown",
@@ -228,8 +251,12 @@ suspend fun saveState(context: Context, state: UiState) {
     context.dataStore.edit { p ->
         p[stringPreferencesKey("server")] = state.server.name
         p[stringPreferencesKey("reset_key")] = resetKey(state.server)
+        p[stringPreferencesKey("weekly_reset_key")] = weeklyResetKey(state.server)
         p[booleanPreferencesKey("daily")] = state.dailyDone
         p[booleanPreferencesKey("lunite")] = state.luniteDone
+        p[booleanPreferencesKey("weekly")] = state.weeklyDone
+        p[stringPreferencesKey("weekly_done_date")] = state.weeklyDoneDate
+        p[stringPreferencesKey("reminder")] = state.reminderEnabled.toString()
         p[booleanPreferencesKey("reminder")] = state.reminderEnabled
         p[intPreferencesKey("lead")] = state.reminderLead
         p[stringPreferencesKey("feed_url")] = state.feedUrl
