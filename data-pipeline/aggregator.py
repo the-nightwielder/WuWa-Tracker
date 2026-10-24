@@ -1389,11 +1389,11 @@ def main():
     balanced_items = []
     for item in sorted(by_title.values(), key=lambda z: z['publishedAt'], reverse=True):
         if item.get("sourceId") == "x-search-news":
-            if x_news_count >= 4:
+            if x_news_count >= 6:
                 continue
             x_news_count += 1
         elif item.get("sourceId") == "x-search-leaks":
-            if x_leaks_count >= 3:
+            if x_leaks_count >= 6:
                 continue
             x_leaks_count += 1
         balanced_items.append(item)
