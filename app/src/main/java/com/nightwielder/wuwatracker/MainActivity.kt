@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.nightwielder.wuwatracker.data.*
@@ -151,14 +153,45 @@ private fun WuWaTrackerRoot() {
                 )
             },
             bottomBar = {
-                NavigationBar(containerColor = Color(0xEE16131D)) {
-                    listOf("Home", "Endgame", "Banners", "Intel", "Settings").forEachIndexed { i, label ->
-                        NavigationBarItem(
-                            selected = tab == i,
-                            onClick = { tab = i },
-                            icon = { Text(listOf("⌂", "⚔", "🚩", "📰", "⚙")[i]) },
-                            label = { Text(label) }
-                        )
+                val navIcons = listOf(
+                    R.drawable.ic_nav_rover,
+                    R.drawable.ic_nav_hiyuki,
+                    R.drawable.ic_nav_jinhsi,
+                    R.drawable.ic_nav_shorekeeper,
+                    R.drawable.ic_nav_cartethyia
+                )
+                Surface(
+                    color = Color(0xEE16131D),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        listOf("Home", "Endgame", "Banners", "Intel", "Settings").forEachIndexed { i, label ->
+                            val selected = tab == i
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { tab = i },
+                                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                androidx.compose.foundation.Image(
+                                    painter = androidx.compose.ui.res.painterResource(navIcons[i]),
+                                    contentDescription = label,
+                                    modifier = Modifier.size(62.dp),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                                )
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selected) Color(0xFFFFD994) else Color(0xFF8E889B)
+                                )
+                            }
+                        }
                     }
                 }
             }
