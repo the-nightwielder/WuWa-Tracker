@@ -150,7 +150,7 @@ private fun durationText(d: Duration): String {
             item { TaskCard("Lunite Subscription", "Claim today's reward • +90 Astrites", state.luniteDone) { v -> onUpdate { it.copy(luniteDone = v) } } }
             item { Text("Weekly Checklist", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color.White) }
             item {
-                TaskCard("Weekly Activity Points", "Collect 6000 points (Phantasma / Gateways) • +160 Astrites", state.weeklyDone) { v ->
+                TaskCard("Weekly Activity Points", "Collect 6000 Activity Points (Phantasma Dreamland Rhapsody / Fantasies of the Thousand Gateways) • +160 Astrites", state.weeklyDone) { v ->
                     onUpdate {
                         it.copy(
                             weeklyDone = v,
