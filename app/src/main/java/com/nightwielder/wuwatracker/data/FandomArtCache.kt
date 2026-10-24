@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 private data class CachedArtUrl(val url: String?, val cachedAt: Long)
 private val fandomArtUrlCache = ConcurrentHashMap<String, CachedArtUrl>()
-private const val ART_CACHE_TTL_MS = 6 * 60 * 60 * 1000L
+private const val ART_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000L // 30 days
 private const val ART_MAX_BYTES = 5 * 1024 * 1024
 private const val ART_MAX_DECODE_EDGE = 2048
 
@@ -110,10 +110,25 @@ fun fandomPageImage(name: String, kind: String): String? {
     return image
 }
 
-fun artworkFile(context: Context, identity: String, url: String): File {
-    val digest = MessageDigest.getInstance("SHA-256").digest("$identity|$url".toByteArray()).joinToString("") { "%02x".format(it) }
+fun artworkFile(context: Context, identity: String): File {
+    val digest = MessageDigest.getInstance("SHA-256").digest(identity.lowercase(Locale.ROOT).toByteArray()).joinToString("") { "%02x".format(it) }
     return File(File(context.cacheDir, "banner-artwork"), "$digest.img")
 }
+
+fun loadArtworkFromDisk(context: Context, identity: String, crop: Float, verticalBias: Float = .5f): ImageBitmap? = runCatching {
+    val file = artworkFile(context, identity)
+    val expiryFile = File(file.parentFile, file.name + ".expiry")
+    val now = System.currentTimeMillis()
+    val storedExpiry = expiryFile.takeIf { it.isFile }?.readText()?.toLongOrNull() ?: 0L
+    if (!file.isFile || storedExpiry == 0L || (storedExpiry != Long.MAX_VALUE && now >= storedExpiry)) {
+        return null
+    }
+    val bitmap = decodeArtwork(file) ?: return null
+    val side = (minOf(bitmap.width, bitmap.height) * crop).toInt().coerceAtLeast(1)
+    val left = ((bitmap.width - side) / 2).coerceIn(0, bitmap.width - side)
+    val top = ((bitmap.height - side) * verticalBias).toInt().coerceIn(0, bitmap.height - side)
+    Bitmap.createBitmap(bitmap, left, top, side, side).asImageBitmap()
+}.getOrNull()
 
 fun pruneArtworkCache(context: Context) {
     val dir = File(context.cacheDir, "banner-artwork")
@@ -131,30 +146,33 @@ fun pruneArtworkCache(context: Context) {
 }
 
 fun loadArtwork(context: Context, identity: String, url: String, crop: Float, expiresAt: Long, verticalBias: Float = .5f): ImageBitmap? = runCatching {
-    val file = artworkFile(context, identity, url)
+    val cachedDisk = loadArtworkFromDisk(context, identity, crop, verticalBias)
+    if (cachedDisk != null) return cachedDisk
+
+    val file = artworkFile(context, identity)
     val expiryFile = File(file.parentFile, file.name + ".expiry")
     val now = System.currentTimeMillis()
-    val storedExpiry = expiryFile.takeIf { it.isFile }?.readText()?.toLongOrNull() ?: 0L
-    var bitmap: Bitmap? = if (file.isFile && storedExpiry != 0L && (storedExpiry == Long.MAX_VALUE || now < storedExpiry)) decodeArtwork(file) else null
-    if (bitmap == null) {
-        file.delete()
-        expiryFile.delete()
-        val connection = openFandomArtworkConnection(url)
-        try {
-            if (connection.contentLengthLong > ART_MAX_BYTES) throw IllegalStateException("Artwork is too large")
-            val bytes = connection.inputStream.use { readBounded(it, ART_MAX_BYTES) }
-            bitmap = decodeArtwork(bytes) ?: throw IllegalStateException("Unsupported or oversized artwork")
-            file.parentFile?.mkdirs()
-            val temp = File(file.parentFile, file.name + "." + Thread.currentThread().id + ".tmp")
-            FileOutputStream(temp).use { it.write(bytes) }
-            if (temp.renameTo(file)) {
-                file.setLastModified(now)
-                expiryFile.writeText(expiresAt.toString())
-            } else temp.delete()
-        } finally {
-            connection.disconnect()
-        }
+
+    file.delete()
+    expiryFile.delete()
+    val connection = openFandomArtworkConnection(url)
+    var bitmap: Bitmap? = null
+    try {
+        if (connection.contentLengthLong > ART_MAX_BYTES) throw IllegalStateException("Artwork is too large")
+        val bytes = connection.inputStream.use { readBounded(it, ART_MAX_BYTES) }
+        bitmap = decodeArtwork(bytes) ?: throw IllegalStateException("Unsupported or oversized artwork")
+        file.parentFile?.mkdirs()
+        val temp = File(file.parentFile, file.name + "." + Thread.currentThread().id + ".tmp")
+        FileOutputStream(temp).use { it.write(bytes) }
+        if (temp.renameTo(file)) {
+            file.setLastModified(now)
+            val effectiveExpiry = if (expiresAt == Long.MAX_VALUE || expiresAt <= 0L) now + ART_CACHE_TTL_MS else expiresAt
+            expiryFile.writeText(effectiveExpiry.toString())
+        } else temp.delete()
+    } finally {
+        connection.disconnect()
     }
+
     bitmap?.let { source ->
         val side = (minOf(source.width, source.height) * crop).toInt().coerceAtLeast(1)
         val left = ((source.width - side) / 2).coerceIn(0, source.width - side)
