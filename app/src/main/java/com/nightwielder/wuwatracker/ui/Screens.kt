@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -100,6 +101,11 @@ private fun durationText(d: Duration): String {
 ) {
     val fmt = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withLocale(Locale.getDefault())
     val localClock = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()).withZone(ZoneId.systemDefault()).format(now)
+    val todayResetKey = com.nightwielder.wuwatracker.resetKey(state.server, now)
+    val dailyEarned = (if (state.dailyDone) 60 else 0) + (if (state.luniteDone) 90 else 0)
+    val weeklyTodayEarned = if (state.weeklyDone && state.weeklyDoneDate == todayResetKey) 160 else 0
+    val totalTodayEarned = dailyEarned + weeklyTodayEarned
+
     ArtworkScreen(modifier, R.drawable.bg_home) {
         LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text("Today", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.White) }
@@ -114,9 +120,45 @@ private fun durationText(d: Duration): String {
                     }
                 }
             }
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF2E273A))) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Astrites Earned Today", style = MaterialTheme.typography.labelMedium, color = Color(0xFFBFE8E2))
+                            Text("Checklist Rewards", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        }
+                        Surface(
+                            color = Color(0x33FFD994),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                "+$totalTodayEarned Astrites",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFFFD994),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
             item { Text("Daily Checklist", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color.White) }
             item { TaskCard("Daily Activities", "Reach 100 Activity Points • +60 Astrites", state.dailyDone) { v -> onUpdate { it.copy(dailyDone = v) } } }
             item { TaskCard("Lunite Subscription", "Claim today's reward • +90 Astrites", state.luniteDone) { v -> onUpdate { it.copy(luniteDone = v) } } }
+            item { Text("Weekly Checklist", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color.White) }
+            item {
+                TaskCard("Weekly Activity Points", "Collect 6000 points (Phantasma / Gateways) • +160 Astrites", state.weeklyDone) { v ->
+                    onUpdate {
+                        it.copy(
+                            weeklyDone = v,
+                            weeklyDoneDate = if (v) com.nightwielder.wuwatracker.resetKey(it.server, now) else ""
+                        )
+                    }
+                }
+            }
             item { Text("Monthly Endgame Checklist", style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp), fontWeight = FontWeight.Bold, color = Color(0xFFFFD994)) }
             item { Text("These checkboxes reset with the server's calendar month. Exact active phases should be verified in-game.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFE2DDEA)) }
             item { TaskCard("Tower of Adversity", "Complete this Tower cycle", state.monthlyTower) { v -> onUpdate { it.copy(monthlyTower = v) } } }
