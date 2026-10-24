@@ -8,7 +8,7 @@ Sources are configured in [`sources.json`](sources.json). The pipeline does not 
 
 An item is labeled `OFFICIAL` only when publisher metadata identifies an approved Kuro Games domain or the official Wuthering Waves X account; a source's configured category alone is not enough. Items from sources configured as `leak-community`, and other items whose title or summary contains leak-related terms, are labeled `LEAK`. This label does not confirm a claim.
 
-The pipeline reads Google News RSS search results (with a 7-day time filter `when:7d` for X search queries), Prydwen and Game8 schedule snapshots, and Kuro Games' official news JSON index. Each remote response is limited to 10 MiB. Source failures are recorded in `sourceHealth` where possible, and one failed source does not prevent other sources from being processed.
+The pipeline reads Google News RSS search results (with a 7-day time filter `when:7d` for X search queries), Prydwen and Game8 schedule snapshots, and Kuro Games' official news JSON index. Each remote response is limited to 10 MiB. Official and Leak X post caps are set to **6 posts each**, and news article sections are expanded up to **35 articles**. Source failures are recorded in `sourceHealth` where possible, and one failed source does not prevent other sources from being processed.
 
 ### Per-Server Banner Timer Synchronization
 
@@ -58,7 +58,7 @@ Review the resolved versions before committing. Install the resulting lock with 
 
 ## GitHub Actions and Pages
 
-The `WuWa Intelligence Feed` workflow runs daily at 00:00 UTC, automatically triggers on repository pushes to `main`/`master`, and can also be started manually from the Actions tab. It installs the hash-locked dependencies, runs the security regression tests, builds the feed, and uploads **only** `feed.json` to GitHub Pages. A separate deployment job publishes that artifact with the Pages permissions it needs. The workflow does not commit the generated feed back to the repository.
+The `WuWa Intelligence Feed` workflow runs daily at 00:00 UTC, automatically triggers on repository pushes to `main`/`master`, and can also be started manually from the repository’s **Actions** tab. It installs the hash-locked dependencies, runs the security regression tests, builds the feed, and uploads **only** `feed.json` to GitHub Pages. A separate deployment job publishes that artifact with the Pages permissions it needs. The workflow does not commit the generated feed back to the repository.
 
 After a successful Pages deployment, the Android app can retrieve the feed at:
 
