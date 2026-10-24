@@ -96,6 +96,8 @@ data class UiState(
     val server: Server = Server.SEA,
     val dailyDone: Boolean = false,
     val luniteDone: Boolean = false,
+    val weeklyDone: Boolean = false,
+    val weeklyDoneDate: String = "",
     val reminderEnabled: Boolean = true,
     val reminderLead: Int = 0,
     val version: String = "Unknown",
