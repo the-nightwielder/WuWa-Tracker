@@ -8,6 +8,7 @@
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity>
+        <activity android:name=".ui.guide.GuideWebViewActivity" android:exported="false" android:configChanges="orientation|screenSize|keyboardHidden" />
         <receiver android:name=".worker.ResetAlarmReceiver" android:exported="false" />
         <receiver android:name=".worker.BootReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
