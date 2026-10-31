@@ -8,6 +8,7 @@ This project was developed with substantial AI assistance using an informal “v
 
 - **Custom Chibi Navigation Icons & 5-Tab Navigation:** High-definition bottom navigation featuring custom Wuthering Waves chibi stickers (**Female Rover**, **Hiyuki**, **Jinhsi**, **Shorekeeper**, **Cartethyia**) across 5 dedicated tabs (`Home`, `Endgame`, `Banners`, `Intel`, `Settings`) with glowing gold active tab styling.
 - **Top Active Redemption Codes Card & 1-Tap Copy:** Automatically extracts active promo codes (e.g. `WUTHERINGGIFT`) from recent feed announcements and displays a prominent card at the top of the Intel tab with gold **`[ 📋 Copy Code ]`** 1-tap button for instant clipboard copying.
+- **Official Resonator Strategy Guides:** Dedicated card section on the Banners tab that automatically tracks the current active 5★ featured character and provides 1-tap access to Kuro Games' official build guide.
 - **Intel Live Search & Keyword Filter:** Real-time search bar on the Intel tab allowing users to filter news articles, codes, or character names (`"Suoming"`, `"maintenance"`, `"codes"`, `"etc."`) on the fly.
 - **Live Banner Remaining Countdown Ribbon:** Full-width solid gold countdown ribbon across the top edge of active and upcoming banner cards, guaranteeing uniform card heights across all regional servers.
 - **Today's Earned Astrites Counter & Weekly Checklist:** Real-time reward tracking card on the Home tab that updates dynamically as you check off your daily activities (+60 Astrites), Lunite subscription claims (+90 Astrites), and weekly activity points (+160 Astrites for Phantasma Dreamland Rhapsody / Fantasies of the Thousand Gateways). Features intelligent date tracking so weekly checklist rewards are added to today's earned total only on the specific day completed, smoothly returning to daily tracking on remaining days.
@@ -34,6 +35,7 @@ WuWa Tracker links to public sources and uses them as references for schedule an
 ### Official information
 
 - [Wuthering Waves official website](https://wutheringwaves.kurogames.com/)
+- [Wuthering Waves Official Strategy & Build Guides](https://wuwaguide.kurogames.com/) — official character strategy and build guides
 - Public official Wuthering Waves X posts discovered through Google News indexing
 
 ### Banner schedules and reference data
@@ -75,4 +77,4 @@ No open-source license is currently granted for this repository’s original sou
 2. Build the app using the included Gradle wrapper.
 3. For public distribution, create a properly signed release APK. Never commit the signing key or passwords to the repository.
 
-The project targets Android API 35. The current app version is **1.4.0** (version code **140**).
+The project targets Android API 35. The current app version is **1.5.0** (version code **150**).
