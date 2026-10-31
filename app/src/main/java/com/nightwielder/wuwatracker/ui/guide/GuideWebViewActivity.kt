@@ -2,6 +2,8 @@ package com.nightwielder.wuwatracker.ui.guide
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.view.View
+import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -36,11 +38,16 @@ class GuideWebViewActivity : ComponentActivity() {
                     AndroidView(
                         factory = { context ->
                             WebView(context).apply {
+                                setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                                webChromeClient = WebChromeClient()
                                 settings.apply {
                                     javaScriptEnabled = true
                                     domStorageEnabled = true
+                                    databaseEnabled = true
+                                    allowFileAccess = true
                                     loadWithOverviewMode = true
                                     useWideViewPort = true
+                                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                     userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                                     cacheMode = WebSettings.LOAD_DEFAULT
                                 }
