@@ -361,22 +361,25 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
                                     Text(name, fontWeight = FontWeight.SemiBold, color = Color.White)
                                     val (bText, bBg, bFg) = if (index == 0) Triple("5★ DEBUT", Color(0x33FFD994), Color(0xFFFFD994)) else Triple("5★ RERUN", Color(0x33BFE8E2), Color(0xFFBFE8E2))
                                     BadgePill(bText, bBg, bFg)
-                                    val guideUrl = kuroGuideUrlFor(name)
-                                    val context = androidx.compose.ui.platform.LocalContext.current
-                                    Button(
-                                        onClick = {
-                                            val intent = Intent(context, com.nightwielder.wuwatracker.ui.guide.GuideWebViewActivity::class.java).apply {
-                                                putExtra("guide_url", guideUrl)
-                                                putExtra("character_name", name)
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                            context.startActivity(intent)
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FFD994), contentColor = Color(0xFFFFD994)),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        modifier = Modifier.padding(start = 6.dp)
-                                    ) {
-                                        Text("📖 Build Guide", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    val isTeased = b.scheduleStatus.equals("TEASED", true)
+                                    if (!isTeased) {
+                                        val guideUrl = kuroGuideUrlFor(name)
+                                        val context = androidx.compose.ui.platform.LocalContext.current
+                                        Button(
+                                            onClick = {
+                                                val intent = Intent(context, com.nightwielder.wuwatracker.ui.guide.GuideWebViewActivity::class.java).apply {
+                                                    putExtra("guide_url", guideUrl)
+                                                    putExtra("character_name", name)
+                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                }
+                                                context.startActivity(intent)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FFD994), contentColor = Color(0xFFFFD994)),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.padding(start = 6.dp)
+                                        ) {
+                                            Text("📖 Build Guide", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                                 val sub = listOfNotNull("5★ Resonator", b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }).joinToString(" · ")
