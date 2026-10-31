@@ -13,7 +13,6 @@ import com.nightwielder.wuwatracker.data.*
 import com.nightwielder.wuwatracker.model.*
 import com.nightwielder.wuwatracker.ui.*
 import com.nightwielder.wuwatracker.ui.intel.*
-import com.nightwielder.wuwatracker.worker.openUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -101,8 +100,9 @@ fun BannersScreen(state: UiState, now: Instant, modifier: Modifier) {
                                 Text("Official Kuro Games Character Strategy & Build Portal", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
                             }
                         }
+                        val context = androidx.compose.ui.platform.LocalContext.current
                         Button(
-                            onClick = { openUrl("https://wuwaguide.kurogames.com/en/") },
+                            onClick = { com.nightwielder.wuwatracker.ui.guide.openKuroGuide(context, "https://wuwaguide.kurogames.com/en/", activeLead) },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FFD994), contentColor = Color(0xFFFFD994)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
