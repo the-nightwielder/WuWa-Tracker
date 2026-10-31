@@ -367,12 +367,7 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
                                         val context = androidx.compose.ui.platform.LocalContext.current
                                         Button(
                                             onClick = {
-                                                val intent = Intent(context, com.nightwielder.wuwatracker.ui.guide.GuideWebViewActivity::class.java).apply {
-                                                    putExtra("guide_url", guideUrl)
-                                                    putExtra("character_name", name)
-                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                }
-                                                context.startActivity(intent)
+                                                com.nightwielder.wuwatracker.ui.guide.openKuroGuide(context, guideUrl, name)
                                             },
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FFD994), contentColor = Color(0xFFFFD994)),
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
