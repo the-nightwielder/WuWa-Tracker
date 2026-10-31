@@ -13,6 +13,7 @@ import com.nightwielder.wuwatracker.data.*
 import com.nightwielder.wuwatracker.model.*
 import com.nightwielder.wuwatracker.ui.*
 import com.nightwielder.wuwatracker.ui.intel.*
+import com.nightwielder.wuwatracker.worker.openUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -80,6 +81,35 @@ fun BannersScreen(state: UiState, now: Instant, modifier: Modifier) {
             if (teased.isNotEmpty()) {
                 item { Text("Teased Resonator Banners", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFE7DAFF)) }
                 items(teased) { b -> BannerOverviewCard(b, false, state.server, Long.MAX_VALUE, now) }
+            }
+
+            item { Text("Official Resonator Strategy Guides", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFFFD994)) }
+            item {
+                val activeLead = active.firstOrNull()?.let { b ->
+                    b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).firstOrNull { it.isNotBlank() }
+                } ?: "Suoming"
+                val activeBanner = active.firstOrNull()
+                val cacheExpires = activeBanner?.let { cacheEnd(it)?.toEpochMilli() } ?: Long.MAX_VALUE
+                val activeArtUrl = activeBanner?.resonatorImages?.entries?.firstOrNull { it.key.equals(activeLead, true) }?.value
+
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF292438))) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            ResonatorArtwork(activeLead, activeArtUrl, cacheExpires)
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text(activeLead, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFFFFD994))
+                                Text("Official Kuro Games Character Strategy & Build Portal", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
+                            }
+                        }
+                        Button(
+                            onClick = { openUrl("https://wuwaguide.kurogames.com/en/") },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FFD994), contentColor = Color(0xFFFFD994)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("📖 View Official Build Guide ↗", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         }
     }
