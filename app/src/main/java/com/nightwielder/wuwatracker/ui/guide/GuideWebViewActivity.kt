@@ -1,6 +1,9 @@
 package com.nightwielder.wuwatracker.ui.guide
 
 import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebChromeClient
@@ -21,6 +24,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+
+fun openKuroGuide(context: Context, url: String, name: String) {
+    val intent = Intent(context, GuideWebViewActivity::class.java).apply {
+        putExtra("guide_url", url)
+        putExtra("character_name", name)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(intent)
+}
 
 class GuideWebViewActivity : ComponentActivity() {
 
@@ -43,12 +55,10 @@ class GuideWebViewActivity : ComponentActivity() {
                                 settings.apply {
                                     javaScriptEnabled = true
                                     domStorageEnabled = true
-                                    databaseEnabled = true
                                     allowFileAccess = true
                                     loadWithOverviewMode = true
                                     useWideViewPort = true
                                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                    userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                                     cacheMode = WebSettings.LOAD_DEFAULT
                                 }
                                 webViewClient = object : WebViewClient() {
