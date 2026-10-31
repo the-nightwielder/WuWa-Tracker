@@ -92,6 +92,7 @@ class GuideWebViewActivity : ComponentActivity() {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .statusBarsPadding()
                             .padding(12.dp)
                             .align(Alignment.TopCenter),
                         horizontalArrangement = Arrangement.SpaceBetween,
