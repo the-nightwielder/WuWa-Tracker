@@ -3,6 +3,7 @@ package com.nightwielder.wuwatracker.ui.guide
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebChromeClient
@@ -35,20 +36,6 @@ fun openKuroGuide(context: Context, url: String, name: String) {
 
 class GuideWebViewActivity : ComponentActivity() {
 
-    private var webView: WebView? = null
-
-    override fun onDestroy() {
-        webView?.apply {
-            stopLoading()
-            loadUrl("about:blank")
-            clearHistory()
-            removeAllViews()
-            destroy()
-        }
-        webView = null
-        super.onDestroy()
-    }
-
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,7 +50,6 @@ class GuideWebViewActivity : ComponentActivity() {
                     AndroidView(
                         factory = { context ->
                             WebView(context).apply {
-                                webView = this
                                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
                                 webChromeClient = WebChromeClient()
                                 settings.apply {
