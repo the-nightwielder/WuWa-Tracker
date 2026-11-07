@@ -6,7 +6,7 @@ plugins {
 dependencyLocking { lockAllConfigurations() }
 
 android { namespace = "com.nightwielder.wuwatracker"; compileSdk = 35
-    defaultConfig { applicationId = "com.nightwielder.wuwatracker"; minSdk = 26; targetSdk = 35; versionCode = 150; versionName = "1.5.0" }
+    defaultConfig { applicationId = "com.nightwielder.wuwatracker"; minSdk = 26; targetSdk = 35; versionCode = 160; versionName = "1.6.0" }
     buildTypes { release { isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") } }
 }
 
