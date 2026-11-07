@@ -85,7 +85,9 @@ fun readBounded(input: InputStream, limit: Int): ByteArray {
 
 fun isFandomArtUrl(value: String?): Boolean = runCatching {
     val u = URL(value)
-    u.protocol == "https" && (
+    u.protocol == "https" &&
+    u.userInfo == null &&
+    (u.port == -1 || u.port == 443) && (
         u.host == "fandom.com" ||
         u.host.endsWith(".fandom.com") ||
         u.host.endsWith(".wikia.nocookie.net") ||
