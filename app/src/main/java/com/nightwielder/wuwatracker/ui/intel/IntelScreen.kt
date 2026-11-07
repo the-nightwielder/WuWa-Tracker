@@ -45,15 +45,37 @@ private fun phaseLabel(phase: Int?): String? = when (phase) {
     1 -> "Phase I"; 2 -> "Phase II"; 3 -> "Phase III"; 4 -> "Phase IV"; else -> null
 }
 
-private fun FeedItem.isNextVersionLeak(currentVersion: String): Boolean {
+private fun FeedItem.isNextVersionLeak(
+    currentVersion: String,
+    confirmedResonators: Set<String> = emptySet(),
+    confirmedUpcomingVersions: Set<String> = emptySet()
+): Boolean {
     val text = title + " " + summary
+
+    // If this leak article is about a character already confirmed as upcoming or active, exclude it from leaks
+    val hasConfirmedResonator = confirmedResonators.any { name ->
+        name.length > 2 && Regex("(?i)(?<![a-z])" + Regex.escape(name) + "(?![a-z])").containsMatchIn(title)
+    }
+
     val versionPattern = Regex("(?i)(?:(?:version|ver\\.?|wuthering\\s+waves|wuwa)\\s*|\\bv\\s*)(\\d+\\.\\d+)")
     val headlineVersions = versionPattern.findAll(title).map { it.groupValues[1] }.toList()
     val versions = (headlineVersions.ifEmpty { versionPattern.findAll(text).map { it.groupValues[1] }.toList() }).toMutableList()
-    if (versions.isEmpty() && Regex("(?i)wuthering\\s+waves|\\bwuwa\\b").containsMatchIn(text)) versions += Regex("\\b(\\d+\\.\\d+)\\b").findAll(text).map { it.groupValues[1] }.toList()
-    val parts = Regex("\\d+\\.\\d+").find(currentVersion)?.value?.split(".")?.mapNotNull { it.toIntOrNull() } ?: return false
-    val next = "${parts.getOrElse(0) { 0 }}.${parts.getOrElse(1) { 0 } + 1}"
-    if (versions.isNotEmpty()) return versions.any { compareVersion(it, next) >= 0 }
+    if (versions.isEmpty() && Regex("(?i)wuthering\\s+waves|\\bwuwa\\b").containsMatchIn(text)) {
+        versions += Regex("\\b(\\d+\\.\\d+)\\b").findAll(text).map { it.groupValues[1] }.toList()
+    }
+
+    val isConfirmedVersionOnly = versions.isNotEmpty() && versions.all { it in confirmedUpcomingVersions }
+    if (hasConfirmedResonator && isConfirmedVersionOnly) {
+        return false
+    }
+
+    // Target unconfirmed versions beyond any confirmed upcoming version
+    val highestConfirmed = confirmedUpcomingVersions.maxWithOrNull { a, b -> compareVersion(a, b) } ?: currentVersion
+    val base = if (compareVersion(highestConfirmed, currentVersion) > 0) highestConfirmed else currentVersion
+    val parts = Regex("\\d+\\.\\d+").find(base)?.value?.split(".")?.mapNotNull { it.toIntOrNull() } ?: return false
+    val nextTarget = "${parts.getOrElse(0) { 0 }}.${parts.getOrElse(1) { 0 } + 1}"
+
+    if (versions.isNotEmpty()) return versions.any { compareVersion(it, nextTarget) >= 0 }
     return Regex("(?i)\\b(?:next\\s+(?:version|patch|update|resonator)|upcoming\\s+(?:version|resonator|banner)|beta\\s+(?:for|of)\\s+(?:the\\s+)?next\\s+(?:version|patch))\\b").containsMatchIn(text)
 }
 
@@ -101,21 +123,94 @@ private fun relativeTime(raw: String): String {
     }
 }
 
-fun extractPromoCodes(text: String): List<String> {
-    val pattern = Regex("\\b[A-Z0-9]{6,12}\\b")
-    val exclude = setOf("WUTHERING", "RESONATOR", "ASTRITES", "LUNITE", "CONVENE", "SOLARIS", "JADEHAVEN", "KUMOKIRI", "MOONGAZER", "COMMUNITY", "OFFICIAL", "PREVIEW", "VERSION", "UPDATE", "SUMMARY", "DESKTOP")
-    return pattern.findAll(text)
-        .map { it.value }
-        .filter { it !in exclude && !it.startsWith("HTTP") && it.any { c -> c.isDigit() } }
-        .distinct()
-        .toList()
+data class PromoCodeItem(
+    val code: String,
+    val label: String,
+    val expiresAt: Instant? = null
+)
+
+fun extractPromoCodesWithDetails(feedItems: List<FeedItem>, now: Instant): List<PromoCodeItem> {
+    val exclude = setOf(
+        "WUTHERING", "RESONATOR", "ASTRITES", "LUNITE", "CONVENE", "SOLARIS", "JADEHAVEN",
+        "KUMOKIRI", "MOONGAZER", "COMMUNITY", "OFFICIAL", "PREVIEW", "VERSION", "UPDATE",
+        "SUMMARY", "DESKTOP", "SPECIAL", "BROADCAST", "CHARACTER", "SCHEDULE", "FEATURED",
+        "ACTIVITIES", "NOVEMBER", "DECEMBER", "OCTOBER", "JANUARY", "DISCORD", "TWITTER",
+        "YOUTUBE", "WAVES", "PORTAL", "WEAPON", "PHASE", "REWARD", "GUIDE", "DETAILS", "CHECKLIST"
+    )
+    val codeRegex = Regex("\\b[A-Z0-9]{5,16}\\b")
+    val dateRegex = Regex("(?i)(?:valid|available|ends?|expiry|expires?|till|until)\\s*(?:through|till|until|to)?\\s*:?\\s*([A-Za-z]{3,9}\\s+\\d{1,2}(?:,\\s*\\d{4})?(?:\\s+\\d{1,2}:\\d{2}\\s*(?:AM|PM)?)?(?:\\s*\\([A-Za-z0-9+-]+\\))?|\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})")
+
+    val results = mutableListOf<PromoCodeItem>()
+    for (item in feedItems) {
+        val text = item.title + " " + item.summary
+        val isCodePost = Regex("(?i)\\b(?:code|codes|redeem|redemption|gift|broadcast|stream|reward)\\b").containsMatchIn(text)
+        if (!isCodePost) continue
+
+        var expiresAt: Instant? = null
+        val dateMatch = dateRegex.find(text)
+        if (dateMatch != null) {
+            val dateStr = dateMatch.groupValues[1]
+            expiresAt = parseDateString(dateStr)
+        }
+        if (expiresAt == null) {
+            val pub = runCatching { Instant.parse(item.publishedAt) }.getOrNull()
+            if (pub != null) {
+                val isBroadcast = Regex("(?i)broadcast|stream|preview|special").containsMatchIn(text)
+                expiresAt = pub.plus(Duration.ofDays(if (isBroadcast) 3 else 30))
+            }
+        }
+
+        if (expiresAt != null && now.isAfter(expiresAt)) continue
+
+        val matches = codeRegex.findAll(text)
+        for (m in matches) {
+            val candidate = m.value
+            if (candidate in exclude || candidate.startsWith("HTTP")) continue
+            val isAlphaOnly = candidate.all { it.isLetter() }
+            if (isAlphaOnly) {
+                val idx = text.indexOf(candidate)
+                val window = text.substring(maxOf(0, idx - 40), minOf(text.length, idx + candidate.length + 40)).lowercase(Locale.ROOT)
+                val nearCodeKeyword = listOf("code", "redeem", "gift", "reward", "convene", "astrite", "free").any { it in window }
+                if (!nearCodeKeyword) continue
+            }
+            results.add(
+                PromoCodeItem(
+                    candidate,
+                    if (item.title.contains("Broadcast", true) || item.title.contains("Stream", true) || item.title.contains("Preview", true)) "Livestream Reward" else "Event / Community Reward",
+                    expiresAt
+                )
+            )
+        }
+    }
+    return results.distinctBy { it.code }
 }
 
+private fun parseDateString(raw: String): Instant? = runCatching {
+    val clean = raw.replace(Regex("\\s*\\([A-Za-z0-9+-]+\\)\\s*"), "").trim()
+    val formats = listOf(
+        "MMM d, yyyy h:mm a", "MMM d yyyy h:mm a", "MMM d, yyyy", "MMM d yyyy",
+        "d/M/yyyy", "M/d/yyyy", "yyyy-MM-dd"
+    )
+    for (f in formats) {
+        val parsed = runCatching {
+            val dtf = DateTimeFormatter.ofPattern(f, Locale.US).withZone(ZoneId.of("America/Los_Angeles"))
+            dtf.parse(clean, Instant::from)
+        }.getOrNull()
+        if (parsed != null) return parsed
+    }
+    null
+}.getOrNull()
+
+fun extractPromoCodes(text: String): List<String> =
+    extractPromoCodesWithDetails(listOf(FeedItem("", "", text, "", "", "", 0.0)), Instant.now()).map { it.code }
+
 fun copyToClipboard(context: Context, label: String, text: String) {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager ?: return
     val clip = android.content.ClipData.newPlainText(label, text)
     clipboard.setPrimaryClip(clip)
-    android.widget.Toast.makeText(context, "Copied $text to clipboard!", android.widget.Toast.LENGTH_SHORT).show()
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+        android.widget.Toast.makeText(context, "Copied $text to clipboard!", android.widget.Toast.LENGTH_SHORT).show()
+    }
 }
 
 private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
@@ -131,8 +226,23 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
     val feed = state.feedItems.filter { it.relevant(version, now) }.sortedByDescending { runCatching { Instant.parse(it.publishedAt) }.getOrDefault(Instant.EPOCH) }
     val banners = state.banners.filter { it.relevantBanner(version, now) }
 
-    val activeCodes = remember(feed) {
-        feed.flatMap { extractPromoCodes(it.title + " " + it.summary) }.distinct().take(4)
+    val confirmedUpcoming = remember(state.banners, now) {
+        state.banners.filter { b ->
+            val t = b.serverTimes[state.server.name]
+            (t?.startAt?.isAfter(now) == true) || (t == null && b.scheduleStatus.equals("UPCOMING", true))
+        }
+    }
+    val confirmedResonators = remember(state.banners) {
+        state.banners.flatMap { b ->
+            b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim().lowercase(Locale.ROOT) }
+        }.filter { it.isNotBlank() }.toSet()
+    }
+    val confirmedUpcomingVersions = remember(confirmedUpcoming) {
+        confirmedUpcoming.mapNotNull { it.version }.toSet()
+    }
+
+    val activeCodes = remember(feed, now) {
+        extractPromoCodesWithDetails(feed, now).take(4)
     }
 
     val filteredFeed = remember(feed, searchQuery) {
@@ -154,18 +264,25 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
                         if (activeCodes.isEmpty()) {
                             Text("No active promo codes found in recent feed announcements.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
                         } else {
-                            activeCodes.forEach { code ->
+                            activeCodes.forEach { codeItem ->
                                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Column {
-                                        Text(code, fontWeight = FontWeight.Bold, color = Color.White)
-                                        Text("Livestream / Event Reward", style = MaterialTheme.typography.bodySmall, color = Color(0xFFBFE8E2))
+                                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(codeItem.code, fontWeight = FontWeight.Bold, color = Color.White)
+                                        val expirationText = codeItem.expiresAt?.let { exp ->
+                                            val remaining = Duration.between(now, exp)
+                                            if (remaining.isNegative) "Expired"
+                                            else if (remaining.toHours() in 1..48) "⏱ Expires in ${remaining.toHours()}h"
+                                            else "Valid till " + DateTimeFormatter.ofPattern("MMM d", Locale.US).withZone(ZoneId.systemDefault()).format(exp)
+                                        }
+                                        val subtitle = listOfNotNull(codeItem.label, expirationText).joinToString(" • ")
+                                        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color(0xFFBFE8E2))
                                     }
                                     Button(
-                                        onClick = { copyToClipboard(context, "Promo Code", code) },
+                                        onClick = { copyToClipboard(context, "Promo Code", codeItem.code) },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FFD994), contentColor = Color(0xFFFFD994)),
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                     ) {
-                                        Text("📋 Copy: $code", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text("📋 Copy: ${codeItem.code}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -194,11 +311,18 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
             }
 
             groups.forEach { g ->
-                val candidates = filteredFeed.filter { it.status.equals(g.status, true) && (g.status != "LEAK" || it.isNextVersionLeak(version)) }
+                val query = searchQuery.trim()
+                val candidates = filteredFeed.filter { it.status.equals(g.status, true) && (g.status != "LEAK" || it.isNextVersionLeak(version, confirmedResonators, confirmedUpcomingVersions)) }
                 val rows = (if (g.status == "LEAK") candidates.distinctBy { it.leakDedupKey(version, state.resonators) } else candidates).take(35)
                 val shownArticleUrls = rows.map { it.url }.toSet()
-                val gb = banners.filter { it.scheduleStatus != "TEASED" && it.status.equals(g.status, true) && (g.status != "LEAK" || (it.version?.let { v -> compareVersion(v, version) > 0 } == true && it.sourceUrls.none { url -> url in shownArticleUrls })) }.take(8)
-                val gr = state.resonators.filter { it.status.equals(g.status, true) && if (g.status == "LEAK") it.version?.let { v -> compareVersion(v, version) > 0 } == true && it.sourceUrls.none { url -> url in shownArticleUrls } else (it.version?.let { v -> compareVersion(v, version) >= 0 } == true || feed.any { n -> n.title.contains(it.name, true) || n.summary.contains(it.name, true) }) }.take(8)
+                val gb = banners.filter { b ->
+                    (query.isBlank() || b.title.contains(query, true) || b.sourceLabel.contains(query, true) || b.version?.contains(query, true) == true) &&
+                    b.scheduleStatus != "TEASED" && b.status.equals(g.status, true) && (g.status != "LEAK" || (b.version?.let { v -> compareVersion(v, version) > 0 } == true && b.sourceUrls.none { url -> url in shownArticleUrls }))
+                }.take(8)
+                val gr = state.resonators.filter { r ->
+                    (query.isBlank() || r.name.contains(query, true) || r.element?.contains(query, true) == true || r.weapon?.contains(query, true) == true || r.version?.contains(query, true) == true) &&
+                    r.status.equals(g.status, true) && if (g.status == "LEAK") r.version?.let { v -> compareVersion(v, version) > 0 } == true && r.sourceUrls.none { url -> url in shownArticleUrls } else (r.version?.let { v -> compareVersion(v, version) >= 0 } == true || feed.any { n -> n.title.contains(r.name, true) || n.summary.contains(r.name, true) })
+                }.take(8)
                 val closed = g.status in state.collapsedSections
                 item(key = "section-" + g.status) { SectionHeader(g, closed) { onToggle(g.status) } }
                 if (!closed) {
@@ -306,8 +430,14 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
     val expandedSummary = listOfNotNull(b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }, scheduleRange.takeIf { it.isNotBlank() }?.plus(scheduleSuffix)).joinToString(" · ").ifBlank { missingScheduleLabel }
     val names = b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(Locale.ROOT) }.take(3)
     val feedWeapons = b.weaponClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map { it.trim() }?.filter { it.isNotBlank() }?.distinctBy { it.lowercase(Locale.ROOT) }.orEmpty()
-    val timelineFallback = if (b.version == "3.7") mapOf("hsin" to "Blooming Jadehaven", "chisa" to "Kumokiri", "iuno" to "Moongazer’s Sigil", "suoming" to "Unspoken Rue", "lynae" to "Spectrum Blaster", "lucilla" to "Freeze Frame") else emptyMap()
-    val mappedFallback = names.mapNotNull { timelineFallback[it.lowercase(Locale.ROOT)] }
+    val signatureWeapons = mapOf(
+        "suoming" to "Unspoken Rue", "lily" to "Unfading Blossom", "qiuyuan" to "Verdant Summit", "sigrika" to "Dawn's Radiance",
+        "hsin" to "Blooming Jadehaven", "chisa" to "Kumokiri", "iuno" to "Moongazer’s Sigil", "lynae" to "Spectrum Blaster",
+        "lucilla" to "Freeze Frame", "jinhsi" to "Ages of Harvest", "changli" to "Blazing Brilliance", "shorekeeper" to "Stellar Symphony",
+        "camellya" to "Red Spring", "carlotta" to "The Last Dance", "yinlin" to "Stringmaster", "jiyan" to "Verdant Summit",
+        "zhezhi" to "Rime-Draped Sprouts", "xiangli yao" to "Verity's Handle"
+    )
+    val mappedFallback = names.mapNotNull { signatureWeapons[it.lowercase(Locale.ROOT)] }
     val weapons = (feedWeapons + mappedFallback).distinctBy { it.lowercase(Locale.ROOT) }.take(3)
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (current) Color(0xFF292438) else Color(0xFF26323C))) {
         Column {
