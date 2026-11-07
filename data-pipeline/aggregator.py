@@ -997,6 +997,62 @@ def _game8_featured_characters(section):
     return []
 
 
+def _game8_featured_weapons(section):
+    weapon_heading = next((node for node in section
+                           if node.name in {"h3", "h4"}
+                           and re.search(r"\b(?:signature\s+)?weapons?\b",
+                                         clean_text(node.get_text(" ", strip=True)), re.I)), None)
+    if weapon_heading:
+        weapon_table = None
+        for node in weapon_heading.find_all_next(["h2", "h3", "h4", "table"]):
+            if node.name in {"h2", "h3", "h4"}:
+                break
+            if node.name == "table":
+                weapon_table = node
+                break
+        if weapon_table:
+            weapons = []
+            for anchor in weapon_table.find_all("a", href=True):
+                image = anchor.find("img")
+                label = clean_text((image.get("alt", "") if image else "")
+                                   or anchor.get("aria-label", "") or anchor.get("title", "")
+                                   or anchor.get_text(" ", strip=True))
+                label = re.sub(r"^Wuthering\s+Waves\s*[-–:]\s*", "", label, flags=re.I)
+                label = re.sub(r"^(?:open|view)\s+", "", label, flags=re.I).strip()
+                match = re.match(r"([\w'’.-]+(?:\s+[\w'’.-]+)*?)\s+banner\b", label, re.I)
+                if not match:
+                    anchor_text = clean_text(anchor.get_text(" ", strip=True))
+                    match = re.match(r"([\w'’.-]+(?:\s+[\w'’.-]+)*?)\s+banner\b", anchor_text, re.I)
+                name = match.group(1).strip() if match else label
+                name = re.sub(r"\s+banner$", "", name, flags=re.I).strip()
+                if (2 <= len(name) <= 50 and name.lower() not in {item.lower() for item in weapons}
+                        and not re.search(r"\b(?:character|resonator|rate-up|guide|tier list|countdown)\b", name, re.I)):
+                    weapons.append(name)
+            if weapons:
+                return weapons
+
+    for table in (node for node in section if node.name == "table"):
+        for row in table.find_all("tr"):
+            row_text = clean_text(row.get_text(" ", strip=True))
+            if not re.search(r"5\s*★.*weapon|weapon.*rate-up|featured weapon", row_text, re.I):
+                continue
+            weapons = []
+            for anchor in row.find_all("a"):
+                image = anchor.find("img")
+                label = clean_text((image.get("alt", "") if image else "")
+                                   or anchor.get("aria-label", "") or anchor.get("title", "")
+                                   or anchor.get_text(" ", strip=True))
+                label = re.sub(r"^Wuthering\s+Waves\s*[-–:]\s*", "", label, flags=re.I)
+                label = re.sub(r"^(?:open|view)\s+", "", label, flags=re.I).strip()
+                name = re.sub(r"\s+banner$", "", label, flags=re.I).strip()
+                if (2 <= len(name) <= 50 and not re.search(r"\b(?:banner|character|resonator|rate-up|icon|limited)\b", name, re.I)
+                        and name.lower() not in {w.lower() for w in weapons}):
+                    weapons.append(name)
+            if weapons:
+                return weapons
+    return []
+
+
 def _game8_overview_snapshots(soup, url, now):
     """Parse the evergreen Game8 overview's current timer and next phase dates."""
     headings = soup.find_all(["h2", "h3", "h4"])
@@ -1052,6 +1108,9 @@ def _game8_overview_snapshots(soup, url, now):
         current_server_times[server] = {"startAt": _game8_iso(current_start), "endAt": _game8_iso(current_end)}
         upcoming_server_times[server] = {"startAt": _game8_iso(next_start), "endAt": _game8_iso(next_end)}
 
+    current_weapons = _game8_featured_weapons(current_section)
+    upcoming_weapons = _game8_featured_weapons(upcoming_section)
+
     common = {
         "version": version,
         "status": "COMMUNITY",
@@ -1061,14 +1120,25 @@ def _game8_overview_snapshots(soup, url, now):
         "snapshotAt": _game8_iso(_game8_utc_datetime(now)),
         "timingBasis": "Calculated from Game8 per-server countdowns and published calendar-day spans; the next phase starts at the current phase transition.",
     }
-    return [
-        {**common, "title": ", ".join(current_names), "phase": current_phase,
-         "startAt": current_server_times["SEA"]["startAt"], "endAt": current_server_times["SEA"]["endAt"],
-         "serverTimes": current_server_times, "scheduleStatus": "CURRENT"},
-        {**common, "title": ", ".join(upcoming_names), "phase": upcoming_phase,
-         "startAt": upcoming_server_times["SEA"]["startAt"], "endAt": upcoming_server_times["SEA"]["endAt"],
-         "serverTimes": upcoming_server_times, "scheduleStatus": "UPCOMING"},
-    ]
+    current_row = {
+        **common, "title": ", ".join(current_names), "phase": current_phase,
+        "startAt": current_server_times["SEA"]["startAt"], "endAt": current_server_times["SEA"]["endAt"],
+        "serverTimes": current_server_times, "scheduleStatus": "CURRENT"
+    }
+    if current_weapons:
+        current_row["weapon"] = ", ".join(current_weapons)
+        current_row["weaponImages"] = {w: img for w in current_weapons if (img := fandom_image(w))}
+
+    upcoming_row = {
+        **common, "title": ", ".join(upcoming_names), "phase": upcoming_phase,
+        "startAt": upcoming_server_times["SEA"]["startAt"], "endAt": upcoming_server_times["SEA"]["endAt"],
+        "serverTimes": upcoming_server_times, "scheduleStatus": "UPCOMING"
+    }
+    if upcoming_weapons:
+        upcoming_row["weapon"] = ", ".join(upcoming_weapons)
+        upcoming_row["weaponImages"] = {w: img for w in upcoming_weapons if (img := fandom_image(w))}
+
+    return [current_row, upcoming_row]
 
 
 def _source_health_entry(source_id, error, stage=None):
@@ -1157,6 +1227,10 @@ def _harmonize_prydwen_rows(snapshots, live_version=None):
             continue
         row["title"] = best["title"]
         row["resonatorImages"] = best.get("resonatorImages", row.get("resonatorImages", {}))
+        if best.get("weapon") and not row.get("weapon"):
+            row["weapon"] = best["weapon"]
+        if best.get("weaponImages"):
+            row.setdefault("weaponImages", {}).update(best["weaponImages"])
         row["sourceLabel"] = f"{best.get('sourceLabel', 'Community banner schedule')} + Prydwen Banner Overview"
         row["sourceUrls"] = list(dict.fromkeys(best.get("sourceUrls", []) + row.get("sourceUrls", [])))
         row["confidence"] = min(best.get("confidence", 0.9), row.get("confidence", 0.9))
@@ -1173,6 +1247,10 @@ def _harmonize_prydwen_rows(snapshots, live_version=None):
             timed = matching_schedules[0]
         if timed:
             row.update({key: timed[key] for key in ("version", "phase", "startAt", "endAt", "serverTimes", "timingBasis") if key in timed})
+            if timed.get("weapon") and not row.get("weapon"):
+                row["weapon"] = timed["weapon"]
+            if timed.get("weaponImages"):
+                row.setdefault("weaponImages", {}).update(timed["weaponImages"])
             row["sourceLabel"] = "Game8 Banner Schedule + Prydwen Banner Overview"
             row["sourceUrls"] = list(dict.fromkeys(timed.get("sourceUrls", []) + row.get("sourceUrls", [])))
             row["confidence"] = min(timed.get("confidence", 0.9), row.get("confidence", 0.9))
@@ -1215,27 +1293,40 @@ def prydwen_banner_snapshot(soup, text, url, now):
         # Restrict a record to the content after its heading and before the
         # next peer/parent heading. Never crawl the remainder of the page.
         names = []
+        weapons = []
         for anchor in heading.find_all_next("a", href=True):
             next_heading = anchor.find_previous(["h2", "h3", "h4"])
             if next_heading is not heading:
                 break
             parts = urlsplit(urljoin(url, anchor["href"]))
-            if parts.hostname not in {"prydwen.gg", "www.prydwen.gg"} or not re.search(r"/wuthering-waves/characters?/[^/]+", parts.path, re.I):
+            if parts.hostname not in {"prydwen.gg", "www.prydwen.gg"}:
                 continue
             if anchor.find_parent("div", attrs={"aria-label": re.compile(r"secondary", re.I)}):
                 continue
-            image = anchor.find("img")
-            candidate = clean_text((image.get("alt", "") if image else "") or anchor.get("aria-label", "") or anchor.get("title", "") or anchor.get_text(" ", strip=True))
-            # Prydwen renders an "Open <character>" accessibility label on
-            # some card links as well as a separate character-name link.
-            candidate = re.sub(r"^(?:open|view|profile)\s+", "", candidate, flags=re.I).strip()
-            candidate = re.sub(r"\s+(?:open|view|profile)$", "", candidate, flags=re.I).strip()
-            if not candidate:
-                candidate = parts.path.rstrip("/").split("/")[-1].replace("-", " ").title()
-            if (2 <= len(candidate) <= 40 and not re.search(
-                    r"banner|weapon|resonator|image|icon|phase|patch|current|upcoming|teased|guide|tier list|privacy|introduction|reroll|beginner|tips|free characters|gacha",
-                    candidate, re.I)) and candidate.lower() not in {name.lower() for name in names}:
-                names.append(candidate)
+            if re.search(r"/wuthering-waves/characters?/[^/]+", parts.path, re.I):
+                image = anchor.find("img")
+                candidate = clean_text((image.get("alt", "") if image else "") or anchor.get("aria-label", "") or anchor.get("title", "") or anchor.get_text(" ", strip=True))
+                # Prydwen renders an "Open <character>" accessibility label on
+                # some card links as well as a separate character-name link.
+                candidate = re.sub(r"^(?:open|view|profile)\s+", "", candidate, flags=re.I).strip()
+                candidate = re.sub(r"\s+(?:open|view|profile)$", "", candidate, flags=re.I).strip()
+                if not candidate:
+                    candidate = parts.path.rstrip("/").split("/")[-1].replace("-", " ").title()
+                if (2 <= len(candidate) <= 40 and not re.search(
+                        r"banner|weapon|resonator|image|icon|phase|patch|current|upcoming|teased|guide|tier list|privacy|introduction|reroll|beginner|tips|free characters|gacha",
+                        candidate, re.I)) and candidate.lower() not in {name.lower() for name in names}:
+                    names.append(candidate)
+            elif re.search(r"/wuthering-waves/weapons?/[^/]+", parts.path, re.I):
+                image = anchor.find("img")
+                candidate = clean_text((image.get("alt", "") if image else "") or anchor.get("aria-label", "") or anchor.get("title", "") or anchor.get_text(" ", strip=True))
+                candidate = re.sub(r"^(?:open|view|profile)\s+", "", candidate, flags=re.I).strip()
+                candidate = re.sub(r"\s+(?:open|view|profile)$", "", candidate, flags=re.I).strip()
+                if not candidate:
+                    candidate = parts.path.rstrip("/").split("/")[-1].replace("-", " ").title()
+                if (2 <= len(candidate) <= 50 and not re.search(
+                        r"banner|character|resonator|image|icon|phase|patch|current|upcoming|teased|guide|tier list|privacy|introduction|reroll|beginner|tips|free characters|gacha",
+                        candidate, re.I)) and candidate.lower() not in {w.lower() for w in weapons}:
+                    weapons.append(candidate)
         if not names:
             continue
         server_times = {}
@@ -1261,11 +1352,15 @@ def prydwen_banner_snapshot(soup, text, url, now):
         start_at = server_times.get("SEA", {}).get("startAt") or server_times.get("AMERICA", {}).get("startAt")
         end_at = server_times.get("SEA", {}).get("endAt") or server_times.get("AMERICA", {}).get("endAt")
 
-        output.append({
+        row = {
             "title": ", ".join(dict.fromkeys(names)), "version": version_value, "phase": phase,
             "startAt": start_at, "endAt": end_at, "serverTimes": server_times, "status": "COMMUNITY", "scheduleStatus": section_status,
             "confidence": 0.9, "sourceLabel": "Prydwen Banner Overview", "sourceUrls": [url], "snapshotAt": now,
-        })
+        }
+        if weapons:
+            row["weapon"] = ", ".join(dict.fromkeys(weapons))
+            row["weaponImages"] = {w: img for w in dict.fromkeys(weapons) if (img := fandom_image(w))}
+        output.append(row)
     if output:
         return output
     overview = _game8_overview_snapshots(soup, url, now)
@@ -1350,20 +1445,23 @@ def main():
                         items.append(item)
             except Exception as exc:
                 errors.append(_source_health_entry(source["id"], exc))
-    # Verified mapping ensures signature weapons for known characters remain intact
-    # across versions even if the timeline temporarily omits its labels.
-    timeline_weapons.update({
-        "Hsin": "Blooming Jadehaven", "Chisa": "Kumokiri", "Iuno": "Moongazer's Sigil",
-        "Suoming": "Unspoken Rue", "Lynae": "Spectrum Blaster", "Lucilla": "Freeze Frame",
-        "Lily": "Unfading Blossom", "Qiuyuan": "Verdant Summit", "Sigrika": "Dawn's Radiance",
-        "Jinhsi": "Ages of Harvest", "Changli": "Blazing Brilliance", "Shorekeeper": "Stellar Symphony",
-        "Camellya": "Red Spring", "Carlotta": "The Last Dance", "Yinlin": "Stringmaster",
-        "Jiyan": "Verdant Summit", "Zhezhi": "Rime-Draped Sprouts", "Xiangli Yao": "Verity's Handle"
-    })
 
     for snapshot in snapshots:
         characters = [part.strip() for part in re.split(r",|\band\b", snapshot.get("title", "")) if part.strip()]
-        weapons = list(dict.fromkeys(timeline_weapons[name] for name in characters if name in timeline_weapons))
+        if snapshot.get("weapon"):
+            scraped_weapons = [w.strip() for w in snapshot["weapon"].split(",") if w.strip()]
+            for character, weapon in zip(characters, scraped_weapons):
+                if character and weapon and character not in timeline_weapons:
+                    timeline_weapons[character] = weapon
+
+    for snapshot in snapshots:
+        characters = [part.strip() for part in re.split(r",|\band\b", snapshot.get("title", "")) if part.strip()]
+        weapons = []
+        if snapshot.get("weapon"):
+            weapons = [w.strip() for w in snapshot["weapon"].split(",") if w.strip()]
+        else:
+            weapons = list(dict.fromkeys(timeline_weapons[name] for name in characters if name in timeline_weapons))
+
         art = snapshot.pop("bannerArtwork", [])
         if "GenGamer" in snapshot.get("sourceLabel", "") and len(art) >= 6:
             resonator_images = snapshot.setdefault("resonatorImages", {})
@@ -1374,9 +1472,8 @@ def main():
                 if weapon_name:
                     weapon_images[weapon_name] = art[index * 2 + 1]
         if weapons:
-            snapshot["weapon"] = ", ".join(weapons)
+            snapshot["weapon"] = ", ".join(dict.fromkeys(weapons))
             snapshot.setdefault("weaponImages", {}).update({name: image for name in weapons if (image := fandom_image(name))})
-            snapshot["sourceUrls"] = list(dict.fromkeys(snapshot.get("sourceUrls", []) + ["https://wuwatracker.com/timeline"]))
 
     # Deduplicate URLs first, then near-identical titles.
     by_url = {}
