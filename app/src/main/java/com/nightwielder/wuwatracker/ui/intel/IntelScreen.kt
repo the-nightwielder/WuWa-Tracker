@@ -52,9 +52,12 @@ private fun FeedItem.isNextVersionLeak(
 ): Boolean {
     val text = title + " " + summary
 
-    // If this leak article is about a character already confirmed as upcoming or active, exclude it from leaks
+    // Exclude leaks if they mention any confirmed active or upcoming resonator
     val hasConfirmedResonator = confirmedResonators.any { name ->
-        name.length > 2 && Regex("(?i)(?<![a-z])" + Regex.escape(name) + "(?![a-z])").containsMatchIn(title)
+        name.length > 2 && Regex("(?i)(?<![a-z])" + Regex.escape(name) + "(?![a-z])").containsMatchIn(text)
+    }
+    if (hasConfirmedResonator) {
+        return false
     }
 
     val versionPattern = Regex("(?i)(?:(?:version|ver\\.?|wuthering\\s+waves|wuwa)\\s*|\\bv\\s*)(\\d+\\.\\d+)")
@@ -64,18 +67,17 @@ private fun FeedItem.isNextVersionLeak(
         versions += Regex("\\b(\\d+\\.\\d+)\\b").findAll(text).map { it.groupValues[1] }.toList()
     }
 
-    val isConfirmedVersionOnly = versions.isNotEmpty() && versions.all { it in confirmedUpcomingVersions }
-    if (hasConfirmedResonator && isConfirmedVersionOnly) {
-        return false
-    }
-
     // Target unconfirmed versions beyond any confirmed upcoming version
     val highestConfirmed = confirmedUpcomingVersions.maxWithOrNull { a, b -> compareVersion(a, b) } ?: currentVersion
     val base = if (compareVersion(highestConfirmed, currentVersion) > 0) highestConfirmed else currentVersion
     val parts = Regex("\\d+\\.\\d+").find(base)?.value?.split(".")?.mapNotNull { it.toIntOrNull() } ?: return false
     val nextTarget = "${parts.getOrElse(0) { 0 }}.${parts.getOrElse(1) { 0 } + 1}"
 
-    if (versions.isNotEmpty()) return versions.any { compareVersion(it, nextTarget) >= 0 }
+    if (versions.isNotEmpty()) {
+        // If all mentioned versions are <= highest confirmed version (e.g. 3.8), it is not a future unconfirmed leak
+        if (versions.all { compareVersion(it, highestConfirmed) <= 0 }) return false
+        return versions.any { compareVersion(it, nextTarget) >= 0 }
+    }
     return Regex("(?i)\\b(?:next\\s+(?:version|patch|update|resonator)|upcoming\\s+(?:version|resonator|banner)|beta\\s+(?:for|of)\\s+(?:the\\s+)?next\\s+(?:version|patch))\\b").containsMatchIn(text)
 }
 
@@ -138,7 +140,7 @@ fun extractPromoCodesWithDetails(feedItems: List<FeedItem>, now: Instant): List<
         "YOUTUBE", "WAVES", "PORTAL", "WEAPON", "PHASE", "REWARD", "GUIDE", "DETAILS", "CHECKLIST"
     )
     val codeRegex = Regex("\\b[A-Z0-9]{5,16}\\b")
-    val dateRegex = Regex("(?i)(?:valid|available|ends?|expiry|expires?|till|until)\\s*(?:through|till|until|to)?\\s*:?\\s*([A-Za-z]{3,9}\\s+\\d{1,2}(?:,\\s*\\d{4})?(?:\\s+\\d{1,2}:\\d{2}\\s*(?:AM|PM)?)?(?:\\s*\\([A-Za-z0-9+-]+\\))?|\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})")
+    val dateRegex = Regex("(?i)(?:valid|available|ends?|expiry|expires?|till|until)\\s*(?:through|till|until|to)?\\s*:?\\s*([A-Za-z]{3,9}\\s+\\d{1,2}(?:,\\s*\\d{4})?(?:\\s+\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)?)?(?:\\s*\\([A-Za-z0-9+-]+\\))?|\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}(?:\\s+\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)?)?(?:\\s*\\([A-Za-z0-9+-]+\\))?)")
 
     val results = mutableListOf<PromoCodeItem>()
     for (item in feedItems) {
@@ -185,16 +187,71 @@ fun extractPromoCodesWithDetails(feedItems: List<FeedItem>, now: Instant): List<
     return results.distinctBy { it.code }
 }
 
+private fun String.matchesSearchQuery(query: String): Boolean {
+    val q = query.trim().lowercase(Locale.ROOT)
+    if (q.isBlank()) return true
+    val content = this.lowercase(Locale.ROOT)
+    if (content.contains(q)) return true
+
+    val tokens = q.split(Regex("\\s+")).filter { it.isNotBlank() }
+
+    fun matchToken(token: String): Boolean {
+        if (content.contains(token)) return true
+        val stem = when {
+            token.endsWith("ies") -> token.dropLast(3) + "y"
+            token.endsWith("es") && (token.endsWith("shes") || token.endsWith("ches") || token.endsWith("xes")) -> token.dropLast(2)
+            token.endsWith("s") && !token.endsWith("ss") -> token.dropLast(1)
+            else -> token
+        }
+        val variants = setOf(token, stem, stem + "s", stem + "es")
+        if (variants.any { content.contains(it) }) return true
+
+        when (stem) {
+            "weapon" -> {
+                val weaponTerms = listOf("weapon", "sword", "broadblade", "pistol", "rectifier", "gauntlet", "signature")
+                if (weaponTerms.any { content.contains(it) }) return true
+            }
+            "resonator", "character" -> {
+                val charTerms = listOf("resonator", "character", "glacio", "fusion", "electro", "aero", "spectro", "havoc")
+                if (charTerms.any { content.contains(it) }) return true
+            }
+            "code", "promo" -> {
+                val codeTerms = listOf("code", "redeem", "redemption", "promo", "astrite", "gift")
+                if (codeTerms.any { content.contains(it) }) return true
+            }
+            "material" -> {
+                val matTerms = listOf("material", "ascension", "forgery", "weekly", "boss", "drop", "talent")
+                if (matTerms.any { content.contains(it) }) return true
+            }
+        }
+        return false
+    }
+
+    return tokens.all { matchToken(it) }
+}
+
 private fun parseDateString(raw: String): Instant? = runCatching {
     val clean = raw.replace(Regex("\\s*\\([A-Za-z0-9+-]+\\)\\s*"), "").trim()
-    val formats = listOf(
-        "MMM d, yyyy h:mm a", "MMM d yyyy h:mm a", "MMM d, yyyy", "MMM d yyyy",
-        "d/M/yyyy", "M/d/yyyy", "yyyy-MM-dd"
+    val zone = ZoneId.of("America/Los_Angeles")
+    val formatsWithTime = listOf(
+        "M/d/yyyy H:mm", "M/d/yyyy h:mm a", "d/M/yyyy H:mm", "d/M/yyyy h:mm a",
+        "MMM d, yyyy h:mm a", "MMM d yyyy h:mm a", "MMM d, yyyy H:mm", "MMM d yyyy H:mm",
+        "yyyy-MM-dd H:mm", "yyyy-MM-dd h:mm a"
     )
-    for (f in formats) {
+    for (f in formatsWithTime) {
         val parsed = runCatching {
-            val dtf = DateTimeFormatter.ofPattern(f, Locale.US).withZone(ZoneId.of("America/Los_Angeles"))
-            dtf.parse(clean, Instant::from)
+            val dtf = DateTimeFormatter.ofPattern(f, Locale.US)
+            java.time.LocalDateTime.parse(clean, dtf).atZone(zone).toInstant()
+        }.getOrNull()
+        if (parsed != null) return parsed
+    }
+    val formatsDateOnly = listOf(
+        "MMM d, yyyy", "MMM d yyyy", "d/M/yyyy", "M/d/yyyy", "yyyy-MM-dd"
+    )
+    for (f in formatsDateOnly) {
+        val parsed = runCatching {
+            val dtf = DateTimeFormatter.ofPattern(f, Locale.US)
+            java.time.LocalDate.parse(clean, dtf).atTime(23, 59, 59).atZone(zone).toInstant()
         }.getOrNull()
         if (parsed != null) return parsed
     }
@@ -247,7 +304,10 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
 
     val filteredFeed = remember(feed, searchQuery) {
         if (searchQuery.isBlank()) feed
-        else feed.filter { it.title.contains(searchQuery, true) || it.summary.contains(searchQuery, true) || it.source.contains(searchQuery, true) }
+        else feed.filter {
+            val text = "${it.title} ${it.summary} ${it.source}"
+            text.matchesSearchQuery(searchQuery)
+        }
     }
 
     ArtworkScreen(modifier, com.nightwielder.wuwatracker.R.drawable.bg_intel) {
@@ -315,13 +375,33 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
                 val candidates = filteredFeed.filter { it.status.equals(g.status, true) && (g.status != "LEAK" || it.isNextVersionLeak(version, confirmedResonators, confirmedUpcomingVersions)) }
                 val rows = (if (g.status == "LEAK") candidates.distinctBy { it.leakDedupKey(version, state.resonators) } else candidates).take(35)
                 val shownArticleUrls = rows.map { it.url }.toSet()
+                val highestConfirmed = confirmedUpcomingVersions.maxWithOrNull { a, b -> compareVersion(a, b) } ?: version
+
                 val gb = banners.filter { b ->
-                    (query.isBlank() || b.title.contains(query, true) || b.sourceLabel.contains(query, true) || b.version?.contains(query, true) == true) &&
-                    b.scheduleStatus != "TEASED" && b.status.equals(g.status, true) && (g.status != "LEAK" || (b.version?.let { v -> compareVersion(v, version) > 0 } == true && b.sourceUrls.none { url -> url in shownArticleUrls }))
+                    val bannerSearchText = listOfNotNull(b.title, b.sourceLabel, b.version?.let { "Version $it" }, b.weaponClaim).joinToString(" ")
+                    val matchesSearch = query.isBlank() || bannerSearchText.matchesSearchQuery(query)
+                    val isExcludedFromLeaks = (b.version?.let { v -> compareVersion(v, highestConfirmed) <= 0 } ?: false) ||
+                            confirmedResonators.any { r -> b.title.contains(r, true) }
+
+                    matchesSearch &&
+                    b.scheduleStatus != "TEASED" &&
+                    b.status.equals(g.status, true) &&
+                    (g.status != "LEAK" || (!isExcludedFromLeaks && b.version?.let { v -> compareVersion(v, highestConfirmed) > 0 } == true && b.sourceUrls.none { url -> url in shownArticleUrls }))
                 }.take(8)
+
                 val gr = state.resonators.filter { r ->
-                    (query.isBlank() || r.name.contains(query, true) || r.element?.contains(query, true) == true || r.weapon?.contains(query, true) == true || r.version?.contains(query, true) == true) &&
-                    r.status.equals(g.status, true) && if (g.status == "LEAK") r.version?.let { v -> compareVersion(v, version) > 0 } == true && r.sourceUrls.none { url -> url in shownArticleUrls } else (r.version?.let { v -> compareVersion(v, version) >= 0 } == true || feed.any { n -> n.title.contains(r.name, true) || n.summary.contains(r.name, true) })
+                    val resSearchText = listOfNotNull(r.name, r.element, r.weapon, r.version?.let { "Version $it" }, r.sourceLabel).joinToString(" ")
+                    val matchesSearch = query.isBlank() || resSearchText.matchesSearchQuery(query)
+                    val isResExcluded = (r.version?.let { v -> compareVersion(v, highestConfirmed) <= 0 } ?: false) ||
+                            confirmedResonators.contains(r.name.trim().lowercase(Locale.ROOT))
+
+                    matchesSearch &&
+                    r.status.equals(g.status, true) &&
+                    if (g.status == "LEAK") {
+                        !isResExcluded && r.version?.let { v -> compareVersion(v, highestConfirmed) > 0 } == true && r.sourceUrls.none { url -> url in shownArticleUrls }
+                    } else {
+                        (r.version?.let { v -> compareVersion(v, version) >= 0 } == true || feed.any { n -> n.title.contains(r.name, true) || n.summary.contains(r.name, true) })
+                    }
                 }.take(8)
                 val closed = g.status in state.collapsedSections
                 item(key = "section-" + g.status) { SectionHeader(g, closed) { onToggle(g.status) } }
@@ -429,16 +509,7 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
     val bannerSummary = listOfNotNull(b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }, scheduleDescription).joinToString(" · ")
     val expandedSummary = listOfNotNull(b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }, scheduleRange.takeIf { it.isNotBlank() }?.plus(scheduleSuffix)).joinToString(" · ").ifBlank { missingScheduleLabel }
     val names = b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(Locale.ROOT) }.take(3)
-    val feedWeapons = b.weaponClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map { it.trim() }?.filter { it.isNotBlank() }?.distinctBy { it.lowercase(Locale.ROOT) }.orEmpty()
-    val signatureWeapons = mapOf(
-        "suoming" to "Unspoken Rue", "lily" to "Unfading Blossom", "qiuyuan" to "Verdant Summit", "sigrika" to "Dawn's Radiance",
-        "hsin" to "Blooming Jadehaven", "chisa" to "Kumokiri", "iuno" to "Moongazer’s Sigil", "lynae" to "Spectrum Blaster",
-        "lucilla" to "Freeze Frame", "jinhsi" to "Ages of Harvest", "changli" to "Blazing Brilliance", "shorekeeper" to "Stellar Symphony",
-        "camellya" to "Red Spring", "carlotta" to "The Last Dance", "yinlin" to "Stringmaster", "jiyan" to "Verdant Summit",
-        "zhezhi" to "Rime-Draped Sprouts", "xiangli yao" to "Verity's Handle"
-    )
-    val mappedFallback = names.mapNotNull { signatureWeapons[it.lowercase(Locale.ROOT)] }
-    val weapons = (feedWeapons + mappedFallback).distinctBy { it.lowercase(Locale.ROOT) }.take(3)
+    val weapons = b.weaponClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map { it.trim() }?.filter { it.isNotBlank() }?.distinctBy { it.lowercase(Locale.ROOT) }.orEmpty().take(3)
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (current) Color(0xFF292438) else Color(0xFF26323C))) {
         Column {
             durationText?.let { text ->
