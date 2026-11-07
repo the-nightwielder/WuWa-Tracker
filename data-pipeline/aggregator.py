@@ -1350,11 +1350,16 @@ def main():
                         items.append(item)
             except Exception as exc:
                 errors.append(_source_health_entry(source["id"], exc))
-    # A small verified mapping prevents the signature weapons for the known live
-    # version from disappearing if the timeline temporarily omits its labels.
-    if current_version == "3.7":
-        timeline_weapons.update({"Hsin": "Blooming Jadehaven", "Chisa": "Kumokiri", "Iuno": "Moongazer's Sigil",
-                                 "Suoming": "Unspoken Rue", "Lynae": "Spectrum Blaster", "Lucilla": "Freeze Frame"})
+    # Verified mapping ensures signature weapons for known characters remain intact
+    # across versions even if the timeline temporarily omits its labels.
+    timeline_weapons.update({
+        "Hsin": "Blooming Jadehaven", "Chisa": "Kumokiri", "Iuno": "Moongazer's Sigil",
+        "Suoming": "Unspoken Rue", "Lynae": "Spectrum Blaster", "Lucilla": "Freeze Frame",
+        "Lily": "Unfading Blossom", "Qiuyuan": "Verdant Summit", "Sigrika": "Dawn's Radiance",
+        "Jinhsi": "Ages of Harvest", "Changli": "Blazing Brilliance", "Shorekeeper": "Stellar Symphony",
+        "Camellya": "Red Spring", "Carlotta": "The Last Dance", "Yinlin": "Stringmaster",
+        "Jiyan": "Verdant Summit", "Zhezhi": "Rime-Draped Sprouts", "Xiangli Yao": "Verity's Handle"
+    })
 
     for snapshot in snapshots:
         characters = [part.strip() for part in re.split(r",|\band\b", snapshot.get("title", "")) if part.strip()]
