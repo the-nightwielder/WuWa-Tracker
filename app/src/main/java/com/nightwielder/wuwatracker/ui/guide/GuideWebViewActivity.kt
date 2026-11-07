@@ -7,10 +7,12 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -24,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.nightwielder.wuwatracker.worker.openUrl
 
 fun openKuroGuide(context: Context, url: String, name: String) {
     val intent = Intent(context, GuideWebViewActivity::class.java).apply {
@@ -36,13 +39,35 @@ fun openKuroGuide(context: Context, url: String, name: String) {
 
 class GuideWebViewActivity : ComponentActivity() {
 
+    private var webView: WebView? = null
+
+    override fun onDestroy() {
+        webView?.apply {
+            stopLoading()
+            loadUrl("about:blank")
+            clearHistory()
+            removeAllViews()
+            destroy()
+        }
+        webView = null
+        super.onDestroy()
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val guideUrl = intent.getStringExtra("guide_url") ?: "https://wuwaguide.kurogames.com/en/"
-        val characterName = intent.getStringExtra("character_name") ?: "Character"
+        val rawUrl = intent.getStringExtra("guide_url") ?: "https://wuwaguide.kurogames.com/en/"
+        val validatedUri = runCatching { Uri.parse(rawUrl) }.getOrNull()
+        val guideUrl = if (validatedUri != null &&
+            validatedUri.scheme == "https" &&
+            (validatedUri.host == "wuwaguide.kurogames.com" || validatedUri.host?.endsWith(".kurogames.com") == true)
+        ) rawUrl else "https://wuwaguide.kurogames.com/en/"
+        val characterName = intent.getStringExtra("character_name")?.take(30) ?: "Character"
 
         setContent {
+            BackHandler(enabled = webView?.canGoBack() == true) {
+                webView?.goBack()
+            }
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF16131D))) {
                     var isLoading by remember { mutableStateOf(true) }
@@ -50,18 +75,30 @@ class GuideWebViewActivity : ComponentActivity() {
                     AndroidView(
                         factory = { context ->
                             WebView(context).apply {
+                                webView = this
                                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
                                 webChromeClient = WebChromeClient()
                                 settings.apply {
                                     javaScriptEnabled = true
                                     domStorageEnabled = true
-                                    allowFileAccess = true
+                                    allowFileAccess = false
+                                    allowContentAccess = false
                                     loadWithOverviewMode = true
                                     useWideViewPort = true
-                                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                     cacheMode = WebSettings.LOAD_DEFAULT
                                 }
                                 webViewClient = object : WebViewClient() {
+                                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                        val url = request?.url?.toString() ?: return false
+                                        val host = request.url?.host.orEmpty()
+                                        if (request.url?.scheme == "https" && (host == "wuwaguide.kurogames.com" || host.endsWith(".kurogames.com"))) {
+                                            return false
+                                        }
+                                        openUrl(url)
+                                        return true
+                                    }
+
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         super.onPageFinished(view, url)
                                         isLoading = false
