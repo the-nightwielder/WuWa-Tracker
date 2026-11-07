@@ -35,6 +35,20 @@ fun openKuroGuide(context: Context, url: String, name: String) {
 
 class GuideWebViewActivity : ComponentActivity() {
 
+    private var webView: WebView? = null
+
+    override fun onDestroy() {
+        webView?.apply {
+            stopLoading()
+            loadUrl("about:blank")
+            clearHistory()
+            removeAllViews()
+            destroy()
+        }
+        webView = null
+        super.onDestroy()
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,6 +63,7 @@ class GuideWebViewActivity : ComponentActivity() {
                     AndroidView(
                         factory = { context ->
                             WebView(context).apply {
+                                webView = this
                                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
                                 webChromeClient = WebChromeClient()
                                 settings.apply {
