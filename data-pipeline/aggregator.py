@@ -1259,8 +1259,9 @@ def _harmonize_prydwen_rows(snapshots, live_version=None):
     return snapshots
 
 
-def _prydwen_weapon_banners(soup):
+def _prydwen_weapon_banners(soup, base_url="https://www.prydwen.gg"):
     weapons_by_vp = {}
+    weapon_images = {}
     for h2 in soup.find_all("h2"):
         if "weapon banner" not in clean_text(h2.get_text()).lower():
             continue
@@ -1291,15 +1292,19 @@ def _prydwen_weapon_banners(soup):
                                 break
                     if w_name and w_name not in weapons:
                         weapons.append(w_name)
+                        img = article.find("img")
+                        img_src = (img.get("src") or img.get("data-src")) if img else None
+                        if img_src and w_name not in weapon_images:
+                            weapon_images[w_name] = urljoin(base_url, img_src)
             if v or p:
                 weapons_by_vp[(v, p)] = weapons
-    return weapons_by_vp
+    return weapons_by_vp, weapon_images
 
 
 def prydwen_banner_snapshot(soup, text, url, now):
     """Read only character-linked entries inside Prydwen's banner sections."""
     headings = soup.find_all(["h2", "h3", "h4"])
-    weapons_by_vp = _prydwen_weapon_banners(soup)
+    weapons_by_vp, prydwen_weapon_art = _prydwen_weapon_banners(soup, url)
     output = []
     section_status = None
     for heading in headings:
@@ -1332,6 +1337,7 @@ def prydwen_banner_snapshot(soup, text, url, now):
         # next peer/parent heading. Never crawl the remainder of the page.
         names = []
         weapons = []
+        prydwen_resonator_images = {}
         for anchor in heading.find_all_next("a", href=True):
             next_heading = anchor.find_previous(["h2", "h3", "h4"])
             if next_heading is not heading:
@@ -1354,6 +1360,9 @@ def prydwen_banner_snapshot(soup, text, url, now):
                         r"banner|weapon|resonator|image|icon|phase|patch|current|upcoming|teased|guide|tier list|privacy|introduction|reroll|beginner|tips|free characters|gacha",
                         candidate, re.I)) and candidate.lower() not in {name.lower() for name in names}:
                     names.append(candidate)
+                    char_img = (image.get("src") or image.get("data-src")) if image else None
+                    if char_img:
+                        prydwen_resonator_images[candidate] = urljoin(url, char_img)
             elif re.search(r"/wuthering-waves/weapons?/[^/]+", parts.path, re.I) or "weapons?search=" in parts.path + "?" + parts.query:
                 image = anchor.find("img")
                 candidate = clean_text((image.get("alt", "") if image else "") or anchor.get("aria-label", "") or anchor.get("title", "") or anchor.get_text(" ", strip=True))
@@ -1367,6 +1376,9 @@ def prydwen_banner_snapshot(soup, text, url, now):
                         r"banner|character|resonator|image|icon|phase|patch|current|upcoming|teased|guide|tier list|privacy|introduction|reroll|beginner|tips|free characters|gacha",
                         candidate, re.I)) and candidate.lower() not in {w.lower() for w in weapons}:
                     weapons.append(candidate)
+                    w_img = (image.get("src") or image.get("data-src")) if image else None
+                    if w_img:
+                        prydwen_weapon_art[candidate] = urljoin(url, w_img)
         if not names:
             continue
         server_times = {}
@@ -1400,9 +1412,22 @@ def prydwen_banner_snapshot(soup, text, url, now):
             "startAt": start_at, "endAt": end_at, "serverTimes": server_times, "status": "COMMUNITY", "scheduleStatus": section_status,
             "confidence": 0.9, "sourceLabel": "Prydwen Banner Overview", "sourceUrls": [url], "snapshotAt": now,
         }
+        res_images = {}
+        for name in names:
+            f_img = fandom_image(name)
+            if f_img:
+                res_images[name] = f_img
+            elif section_status == "TEASED" and name in prydwen_resonator_images:
+                res_images[name] = prydwen_resonator_images[name]
+        if res_images:
+            row["resonatorImages"] = res_images
+
         if combined_weapons:
             row["weapon"] = ", ".join(combined_weapons)
-            row["weaponImages"] = {w: img for w in combined_weapons if (img := fandom_image(w))}
+            row["weaponImages"] = {
+                w: img for w in combined_weapons
+                if (img := (fandom_image(w) or prydwen_weapon_art.get(w)))
+            }
         output.append(row)
     if output:
         return output
