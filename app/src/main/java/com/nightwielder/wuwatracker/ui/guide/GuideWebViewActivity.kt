@@ -3,7 +3,6 @@ package com.nightwielder.wuwatracker.ui.guide
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebChromeClient
@@ -11,7 +10,6 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
-import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -37,44 +35,11 @@ fun openKuroGuide(context: Context, url: String, name: String) {
 
 class GuideWebViewActivity : ComponentActivity() {
 
-    private var webView: WebView? = null
-
-    override fun onDestroy() {
-        webView?.apply {
-            stopLoading()
-            loadUrl("about:blank")
-            clearHistory()
-            removeAllViews()
-            destroy()
-        }
-        webView = null
-        super.onDestroy()
-    }
-
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val rawUrl = intent.getStringExtra("guide_url") ?: "https://wuwaguide.kurogames.com/en/"
-        val validatedUri = runCatching { Uri.parse(rawUrl) }.getOrNull()
-        val guideUrl = if (validatedUri != null &&
-            validatedUri.scheme == "https" &&
-            (validatedUri.host == "wuwaguide.kurogames.com" || validatedUri.host?.endsWith(".kurogames.com") == true || validatedUri.host?.endsWith(".kurogame.com") == true)
-        ) rawUrl else "https://wuwaguide.kurogames.com/en/"
-        val characterName = intent.getStringExtra("character_name")?.take(30) ?: "Character"
-
-        onBackPressedDispatcher.addCallback(
-            this,
-            object : OnBackPressedCallback(enabled = true) {
-                override fun handleOnBackPressed() {
-                    if (webView?.canGoBack() == true) {
-                        webView?.goBack()
-                    } else {
-                        isEnabled = false
-                        finish()
-                    }
-                }
-            }
-        )
+        val guideUrl = intent.getStringExtra("guide_url") ?: "https://wuwaguide.kurogames.com/en/"
+        val characterName = intent.getStringExtra("character_name") ?: "Character"
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
@@ -84,14 +49,12 @@ class GuideWebViewActivity : ComponentActivity() {
                     AndroidView(
                         factory = { context ->
                             WebView(context).apply {
-                                webView = this
                                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
                                 webChromeClient = WebChromeClient()
                                 settings.apply {
                                     javaScriptEnabled = true
                                     domStorageEnabled = true
-                                    allowFileAccess = false
-                                    allowContentAccess = false
+                                    allowFileAccess = true
                                     loadWithOverviewMode = true
                                     useWideViewPort = true
                                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
