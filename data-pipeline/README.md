@@ -13,6 +13,8 @@ The pipeline reads Google News RSS search results (with a 7-day time filter `whe
 ### Per-Server Banner Timer Synchronization
 
 - **Prydwen & Game8 Extraction:** The scraper extracts per-server countdown attributes (`data-start-na`, `data-start-eu`, `data-start-asia`, and Game8 `js-saola-timer` timestamps) to compute exact start and end times for all regional servers (**AMERICA**, **EUROPE**, **ASIA**, **HMT**, and **SEA**).
+- **Dynamic Weapon Banner Associations:** Scrapes weapon convene sections from Prydwen (`Current Weapon Banners`, `Next Weapon Banners`) and Game8 to dynamically associate signature weapons with character banners by `(version, phase)`, completely eliminating static weapon dictionaries.
+- **Artwork Ingestion Hierarchy:** Primary image queries resolve through the Fandom Wiki MediaWiki API (`prop=pageimages`); Prydwen CDN (`cdn.prydwen.gg`) is used strictly as an automated fallback for unreleased weapons and teased resonators when wiki pages are pending.
 - **5-Star Resonator Filtering:** Character links under 4-star secondary rate-ups are filtered out, ensuring clean 5-star banner titles for smooth harmonization between Prydwen and Game8 sources.
 - **Dynamic Link Discovery & Overview Navigation:** Overview URLs navigate directly to primary banner guide pages while dynamically discovering new version banner guides to prevent Cloudflare challenge pages during automated GitHub Actions runs.
 
@@ -67,3 +69,4 @@ https://<github-user>.github.io/<repository>/feed.json
 ```
 
 Do not commit credentials, signing keys, private data, or local build configuration. The published feed and its source links are public.
+
