@@ -42,9 +42,7 @@ WuWa Tracker links to public sources and uses them as references for schedule an
 
 - [Game8 Banner Schedule](https://game8.co/games/Wuthering-Waves/archives/453303) — per-server countdown and schedule reference
 - [Prydwen Banner Overview](https://www.prydwen.gg/wuthering-waves/banners) — resonator, weapon, and regional countdown reference
-- [WuWa Banners](https://wuwabanners.net/) — current banner schedule reference
 - [GenGamer Wuthering Waves Countdown](https://wuthering-countdown.gengamer.in/) — upcoming banner schedule reference
-- [WuWaTracker Timeline](https://wuwatracker.com/timeline) — timeline and weapon schedule references
 
 ### Community reports and leak discovery
 
@@ -55,7 +53,7 @@ The sources above retain their own content, names, and rights. Links and attribu
 
 ### Images and game intellectual property
 
-Resonator and weapon image URLs are sourced from the [Wuthering Waves Wiki on Fandom](https://wutheringwaves.fandom.com/) when a matching image is available. The feed carries image URLs rather than the image files; the app fetches thumbnails from Fandom at runtime and caches them on the device for offline rendering.
+Resonator and weapon image URLs are sourced primarily from the [Wuthering Waves Wiki on Fandom](https://wutheringwaves.fandom.com/) when a matching image is available. The [Prydwen CDN](https://www.prydwen.gg/) serves as an automated fallback for unreleased weapon artwork and teased resonators when wiki pages are pending. The feed carries image URLs rather than the image files; the app fetches thumbnails at runtime and caches them on the device for offline rendering.
 
 The app also includes visual resources in its Android project, including tab backgrounds and launcher artwork. Some may depict Wuthering Waves characters or other game-related material. Wuthering Waves, its characters, logos, and original game artwork belong to their respective rights holders, including Kuro Games. The project’s code terms below do not license that material. Rights holders can contact the maintainer through the [repository issue tracker](https://github.com/the-nightwielder/WuWa-Tracker/issues) to raise a concern.
 
@@ -77,4 +75,4 @@ No open-source license is currently granted for this repository’s original sou
 2. Build the app using the included Gradle wrapper.
 3. For public distribution, create a properly signed release APK. Never commit the signing key or passwords to the repository.
 
-The project targets Android API 35. The current app version is **1.5.0** (version code **150**).
+The project targets Android API 35. The current app version is **1.6.0** (version code **160**).
