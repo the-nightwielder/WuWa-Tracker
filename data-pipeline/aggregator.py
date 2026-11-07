@@ -10,7 +10,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.parse import quote_plus, urljoin, urlsplit
+from urllib.parse import quote_plus, urljoin, urlsplit, unquote
 
 from security_controls import is_verified_official_source, read_bounded_chunks
 
@@ -1259,9 +1259,47 @@ def _harmonize_prydwen_rows(snapshots, live_version=None):
     return snapshots
 
 
+def _prydwen_weapon_banners(soup):
+    weapons_by_vp = {}
+    for h2 in soup.find_all("h2"):
+        if "weapon banner" not in clean_text(h2.get_text()).lower():
+            continue
+        for h3 in h2.find_all_next(["h2", "h3"]):
+            if h3.name == "h2":
+                break
+            label = clean_text(h3.get_text())
+            vm = re.search(r"\b(?:patch|version|v)\s*(\d+\.\d+)\b", label, re.I)
+            pm = re.search(r"phase\s*([12])", label, re.I)
+            v = vm.group(1) if vm else None
+            p = int(pm.group(1)) if pm else None
+            parent_div = h3.find_parent("div", class_="phase-summary")
+            grid = parent_div.find_next_sibling("div") if parent_div else h3.find_next("div")
+            weapons = []
+            if grid:
+                for article in grid.find_all("article"):
+                    card_text = clean_text(article.get_text())
+                    if v and f"patch {v}" not in card_text.lower():
+                        continue
+                    if p and f"phase {p}" not in card_text.lower():
+                        continue
+                    name_el = article.find(class_="banner-name")
+                    w_name = clean_text(name_el.get_text()) if name_el else None
+                    if not w_name:
+                        for a in article.find_all("a", href=True):
+                            if "search=" in a["href"]:
+                                w_name = unquote(a["href"].split("search=")[-1])
+                                break
+                    if w_name and w_name not in weapons:
+                        weapons.append(w_name)
+            if v or p:
+                weapons_by_vp[(v, p)] = weapons
+    return weapons_by_vp
+
+
 def prydwen_banner_snapshot(soup, text, url, now):
     """Read only character-linked entries inside Prydwen's banner sections."""
     headings = soup.find_all(["h2", "h3", "h4"])
+    weapons_by_vp = _prydwen_weapon_banners(soup)
     output = []
     section_status = None
     for heading in headings:
@@ -1316,11 +1354,13 @@ def prydwen_banner_snapshot(soup, text, url, now):
                         r"banner|weapon|resonator|image|icon|phase|patch|current|upcoming|teased|guide|tier list|privacy|introduction|reroll|beginner|tips|free characters|gacha",
                         candidate, re.I)) and candidate.lower() not in {name.lower() for name in names}:
                     names.append(candidate)
-            elif re.search(r"/wuthering-waves/weapons?/[^/]+", parts.path, re.I):
+            elif re.search(r"/wuthering-waves/weapons?/[^/]+", parts.path, re.I) or "weapons?search=" in parts.path + "?" + parts.query:
                 image = anchor.find("img")
                 candidate = clean_text((image.get("alt", "") if image else "") or anchor.get("aria-label", "") or anchor.get("title", "") or anchor.get_text(" ", strip=True))
                 candidate = re.sub(r"^(?:open|view|profile)\s+", "", candidate, flags=re.I).strip()
                 candidate = re.sub(r"\s+(?:open|view|profile)$", "", candidate, flags=re.I).strip()
+                if not candidate and "search=" in parts.query:
+                    candidate = unquote(parts.query.split("search=")[-1])
                 if not candidate:
                     candidate = parts.path.rstrip("/").split("/")[-1].replace("-", " ").title()
                 if (2 <= len(candidate) <= 50 and not re.search(
@@ -1352,14 +1392,17 @@ def prydwen_banner_snapshot(soup, text, url, now):
         start_at = server_times.get("SEA", {}).get("startAt") or server_times.get("AMERICA", {}).get("startAt")
         end_at = server_times.get("SEA", {}).get("endAt") or server_times.get("AMERICA", {}).get("endAt")
 
+        vp_weapons = weapons_by_vp.get((version_value, phase)) or weapons_by_vp.get((version_value, None)) or []
+        combined_weapons = list(dict.fromkeys(weapons + vp_weapons))
+
         row = {
             "title": ", ".join(dict.fromkeys(names)), "version": version_value, "phase": phase,
             "startAt": start_at, "endAt": end_at, "serverTimes": server_times, "status": "COMMUNITY", "scheduleStatus": section_status,
             "confidence": 0.9, "sourceLabel": "Prydwen Banner Overview", "sourceUrls": [url], "snapshotAt": now,
         }
-        if weapons:
-            row["weapon"] = ", ".join(dict.fromkeys(weapons))
-            row["weaponImages"] = {w: img for w in dict.fromkeys(weapons) if (img := fandom_image(w))}
+        if combined_weapons:
+            row["weapon"] = ", ".join(combined_weapons)
+            row["weaponImages"] = {w: img for w in combined_weapons if (img := fandom_image(w))}
         output.append(row)
     if output:
         return output
