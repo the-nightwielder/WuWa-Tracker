@@ -22,6 +22,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.nightwielder.wuwatracker.data.*
 import com.nightwielder.wuwatracker.model.*
 import com.nightwielder.wuwatracker.ui.*
@@ -31,6 +34,8 @@ import com.nightwielder.wuwatracker.worker.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.DayOfWeek
@@ -51,23 +56,18 @@ const val GITHUB_FEED_URL = "https://the-nightwielder.github.io/WuWa-Tracker/fee
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        createNotificationChannel()
+        createNotificationChannel(this)
         setContent { WuWaTrackerRoot() }
     }
-
-    private fun createNotificationChannel() =
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "WuWa reminders", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Daily reset and information reminders"
-            }
-        )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WuWaTrackerRoot() {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    val saveMutex = remember { Mutex() }
     var state by remember { mutableStateOf(UiState()) }
     var now by remember { mutableStateOf(Instant.now()) }
     var tab by remember { mutableIntStateOf(0) }
@@ -88,9 +88,14 @@ private fun WuWaTrackerRoot() {
             showServerPicker = !state.serverSelected
         }
         refreshGithubFeed(context, scope, { syncing = it }, { message -> syncMessage = message }, { fresh -> state = fresh })
-        while (true) {
-            now = Instant.now()
-            delay(1000)
+    }
+
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                now = Instant.now()
+                delay(1000)
+            }
         }
     }
 
@@ -115,16 +120,21 @@ private fun WuWaTrackerRoot() {
     }
 
     LaunchedEffect(state.server, state.reminderEnabled, state.reminderLead) {
-        if (state.reminderEnabled && state.reminderLead >= 0) scheduleResetAlarm(state.server, state.reminderLead) else cancelResetAlarm()
+        if (state.reminderEnabled && state.reminderLead >= 0) scheduleResetAlarm(context, state.server, state.reminderLead) else cancelResetAlarm(context)
     }
     LaunchedEffect(state.customReminderAt, state.reminderEnabled, state.reminderLead) {
-        if (state.reminderEnabled && state.reminderLead == -1) state.customReminderAt?.let { scheduleCustomReminder(it) }
-        else cancelCustomReminder()
+        if (state.reminderEnabled && state.reminderLead == -1) state.customReminderAt?.let { scheduleCustomReminder(context, it) }
+        else cancelCustomReminder(context)
     }
 
     val update: ((UiState) -> UiState) -> Unit = { transform ->
         state = transform(state)
-        scope.launch { saveState(context, state) }
+        val snapshot = state
+        scope.launch {
+            saveMutex.withLock {
+                saveState(context, snapshot)
+            }
+        }
     }
     val onRefreshFeed = {
         if (!syncing) refreshGithubFeed(context, scope, { syncing = it }, { message -> syncMessage = message }, { fresh -> state = fresh })
