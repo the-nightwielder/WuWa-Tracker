@@ -26,13 +26,18 @@ fun BannersScreen(state: UiState, now: Instant, modifier: Modifier) {
 
     fun oneCardPerPhase(rows: List<BannerIntel>) = rows.groupBy { "${it.version.orEmpty()}|${it.phase ?: 0}" }
         .values.mapNotNull { phaseRows ->
-            phaseRows.maxByOrNull {
+            val best = phaseRows.maxByOrNull {
                 (if (it.serverTimes.keys.containsAll(setOf("AMERICA", "EUROPE", "ASIA", "HMT", "SEA"))) 1000 else 0) +
                         (if (it.sourceLabel.contains("Prydwen", true)) 200 else 0) +
                         (if (it.sourceLabel.contains("Game8", true)) 100 else 0) +
                         (if (it.weaponClaim.isNullOrBlank()) 0 else 50 + it.weaponClaim.length) +
                         (it.weaponImages.size * 10) + (it.resonatorImages.size * 5)
-            }
+            } ?: return@mapNotNull null
+            val weaponClaim = best.weaponClaim.takeIf { !it.isNullOrBlank() }
+                ?: phaseRows.mapNotNull { it.weaponClaim }.firstOrNull { it.isNotBlank() }
+            val weaponImages = if (best.weaponImages.isNotEmpty()) best.weaponImages
+                else phaseRows.flatMap { it.weaponImages.entries }.associate { it.key to it.value }
+            best.copy(weaponClaim = weaponClaim, weaponImages = weaponImages)
         }
 
     fun timing(b: BannerIntel): BannerServerTiming? = b.serverTimes[state.server.name]?.takeIf { it.startAt != null && it.endAt != null }
