@@ -482,6 +482,36 @@ class PrydwenBannerParsingTest(unittest.TestCase):
         self.assertEqual("Unspoken Rue, Spectrum Blaster, Freeze Frame", upcoming.get("weapon"))
         self.assertEqual("https://fandom.com/image.png", upcoming.get("weaponImages", {}).get("Unspoken Rue"))
 
+    def test_prydwen_weapon_and_teased_resonator_fallbacks(self):
+        soup = BeautifulSoup("""
+            <h2>Upcoming Banners</h2>
+            <h3>Patch 3.8 Expected Banners</h3>
+            <div>
+              <a href="https://www.prydwen.gg/wuthering-waves/characters/lily"><img src="/img/lily.webp" alt="Lily" /></a>
+              <a href="https://www.prydwen.gg/wuthering-waves/weapons/lullaby"><img src="/img/lullaby.webp" alt="Lullaby" /></a>
+            </div>
+            <h2>Teased Banners</h2>
+            <h3>Teased Resonators</h3>
+            <div>
+              <a href="https://www.prydwen.gg/wuthering-waves/characters/novan"><img src="/img/novan.webp" alt="Novan" /></a>
+            </div>
+        """, "html.parser")
+
+        with patch("aggregator.fandom_image", return_value=None):
+            snapshots = prydwen_banner_snapshot(soup, soup.get_text(" ", strip=True),
+                                                "https://www.prydwen.gg/wuthering-waves/banners", "2026-10-11T00:00:00Z")
+
+        self.assertIsNotNone(snapshots)
+        # Upcoming banner weapon gets Prydwen fallback when Fandom is None
+        upcoming = next(s for s in snapshots if s["scheduleStatus"] == "UPCOMING")
+        self.assertEqual("https://www.prydwen.gg/img/lullaby.webp", upcoming["weaponImages"].get("Lullaby"))
+        # Upcoming resonator stays Fandom-only (does not fallback to Prydwen)
+        self.assertNotIn("Lily", upcoming.get("resonatorImages", {}))
+
+        # Teased banner gets Prydwen fallback when Fandom is None
+        teased = next(s for s in snapshots if s["scheduleStatus"] == "TEASED")
+        self.assertEqual("https://www.prydwen.gg/img/novan.webp", teased["resonatorImages"].get("Novan"))
+
 
 if __name__ == "__main__":
     unittest.main()
