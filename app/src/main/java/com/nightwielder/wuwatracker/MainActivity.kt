@@ -328,12 +328,28 @@ fun parseFeed(raw: String?): FeedResult {
         val value = root.opt(fieldNames.next())
         require(value !is JSONArray || value.length() <= MAX_FEED_ARRAY_ITEMS) { "Feed contains too many records" }
     }
-    val bannerRows = parseBanners(root.optJSONArray("scheduleSnapshots") ?: JSONArray()) +
+    val weaponDetails = stringMap(root.optJSONObject("weaponDetails"))
+    val rawBannerRows = parseBanners(root.optJSONArray("scheduleSnapshots") ?: JSONArray()) +
             parseBanners(root.optJSONArray("banners") ?: JSONArray()) +
             parseBanners(root.optJSONArray("activeBanners") ?: JSONArray()) +
             parseBanners(root.optJSONArray("upcomingBanners") ?: JSONArray())
-    val banners = bannerRows.groupBy { it.title.lowercase(Locale.ROOT) + it.version + it.phase }
-        .values.mapNotNull { rows -> rows.maxByOrNull { (if (it.weaponClaim.isNullOrBlank()) 0 else 10 + it.weaponClaim.length) + it.weaponImages.size * 3 + it.resonatorImages.size + it.serverTimes.size * 100 + (if (it.scheduleStatus.equals("TEASED", true)) 20 else 0) } }
+    val bannerRows = rawBannerRows.map { b ->
+        if (!b.weaponClaim.isNullOrBlank()) b
+        else {
+            val characters = b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }
+            val weapons = characters.mapNotNull { name ->
+                weaponDetails.entries.firstOrNull { it.key.equals(name, true) }?.value
+            }
+            if (weapons.isNotEmpty()) b.copy(weaponClaim = weapons.joinToString(", ")) else b
+        }
+    }
+    val banners = bannerRows.groupBy { "${it.version.orEmpty()}|${it.phase ?: 0}" }
+        .values.mapNotNull { rows ->
+            val best = rows.maxByOrNull { (if (it.weaponClaim.isNullOrBlank()) 0 else 10 + it.weaponClaim.length) + it.weaponImages.size * 3 + it.resonatorImages.size + it.serverTimes.size * 100 + (if (it.scheduleStatus.equals("TEASED", true)) 20 else 0) } ?: return@mapNotNull null
+            val weaponClaim = best.weaponClaim.takeIf { !it.isNullOrBlank() } ?: rows.mapNotNull { it.weaponClaim }.firstOrNull { it.isNotBlank() }
+            val weaponImages = if (best.weaponImages.isNotEmpty()) best.weaponImages else rows.flatMap { it.weaponImages.entries }.associate { it.key to it.value }
+            best.copy(weaponClaim = weaponClaim, weaponImages = weaponImages)
+        }
     return FeedResult(
         parseNews(root.optJSONArray("news") ?: root.optJSONArray("items") ?: JSONArray()),
         parseEvents(root.optJSONArray("events") ?: JSONArray()),
