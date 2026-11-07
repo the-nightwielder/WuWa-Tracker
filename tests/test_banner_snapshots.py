@@ -448,6 +448,40 @@ class PrydwenBannerParsingTest(unittest.TestCase):
 
         self.assertIsNone(snapshots)
 
+    def test_prydwen_banner_snapshot_scrapes_featured_weapons(self):
+        soup = BeautifulSoup("""
+            <h2>Upcoming Banners</h2>
+            <h3>Patch 3.8 Expected Banners</h3>
+            <div>
+              <a href="https://www.prydwen.gg/wuthering-waves/characters/lily"><img alt="Lily" /></a>
+              <a href="https://www.prydwen.gg/wuthering-waves/weapons/unfading-blossom"><img alt="Unfading Blossom" /></a>
+            </div>
+        """, "html.parser")
+
+        with patch("aggregator.fandom_image", return_value="https://fandom.com/image.png"):
+            snapshots = prydwen_banner_snapshot(soup, soup.get_text(" ", strip=True),
+                                                "https://www.prydwen.gg/wuthering-waves/banners", "2026-10-11T00:00:00Z")
+
+        self.assertIsNotNone(snapshots)
+        self.assertEqual("Lily", snapshots[0]["title"])
+        self.assertEqual("Unfading Blossom", snapshots[0].get("weapon"))
+        self.assertEqual("https://fandom.com/image.png", snapshots[0].get("weaponImages", {}).get("Unfading Blossom"))
+
+    def test_game8_overview_scrapes_featured_signature_weapons(self):
+        overview_url = "https://game8.co/games/Wuthering-Waves/archives/453303"
+        now = "2026-10-11T09:04:41.579960Z"
+        overview = BeautifulSoup(GAME8_OVERVIEW_HTML, "html.parser")
+
+        with patch("aggregator.fandom_image", return_value="https://fandom.com/image.png"):
+            snapshots = game8_banner_snapshot(
+                {"id": "game8-banner-schedule"}, overview, overview.get_text(" ", strip=True), overview_url, now
+            )
+
+        self.assertIsNotNone(snapshots)
+        upcoming = snapshots[1]
+        self.assertEqual("Unspoken Rue, Spectrum Blaster, Freeze Frame", upcoming.get("weapon"))
+        self.assertEqual("https://fandom.com/image.png", upcoming.get("weaponImages", {}).get("Unspoken Rue"))
+
 
 if __name__ == "__main__":
     unittest.main()
