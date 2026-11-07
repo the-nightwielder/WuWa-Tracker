@@ -85,7 +85,14 @@ fun readBounded(input: InputStream, limit: Int): ByteArray {
 
 fun isFandomArtUrl(value: String?): Boolean = runCatching {
     val u = URL(value)
-    u.protocol == "https" && (u.host == "fandom.com" || u.host.endsWith(".fandom.com") || u.host.endsWith(".wikia.nocookie.net") || u.host.endsWith(".wikia.com"))
+    u.protocol == "https" && (
+        u.host == "fandom.com" ||
+        u.host.endsWith(".fandom.com") ||
+        u.host.endsWith(".wikia.nocookie.net") ||
+        u.host.endsWith(".wikia.com") ||
+        u.host == "cdn.prydwen.gg" ||
+        u.host.endsWith(".prydwen.gg")
+    )
 }.getOrDefault(false)
 
 fun fandomPageImage(name: String, kind: String): String? {
@@ -140,21 +147,30 @@ fun pruneArtworkCache(context: Context) {
         if (expiry != Long.MAX_VALUE && expiry <= now) {
             file.delete()
             expiryFile.delete()
+            File(dir, file.name + ".url").delete()
         }
     }
     dir.listFiles()?.filter { it.name.endsWith(".tmp") && now - it.lastModified() > 24 * 60 * 60 * 1000L }?.forEach { it.delete() }
 }
 
 fun loadArtwork(context: Context, identity: String, url: String, crop: Float, expiresAt: Long, verticalBias: Float = .5f): ImageBitmap? = runCatching {
-    val cachedDisk = loadArtworkFromDisk(context, identity, crop, verticalBias)
-    if (cachedDisk != null) return cachedDisk
-
     val file = artworkFile(context, identity)
     val expiryFile = File(file.parentFile, file.name + ".expiry")
+    val urlFile = File(file.parentFile, file.name + ".url")
     val now = System.currentTimeMillis()
+
+    val storedUrl = urlFile.takeIf { it.isFile }?.readText()?.trim()
+    val urlMatches = storedUrl != null && storedUrl == url.trim()
+
+    if (urlMatches) {
+        val cachedDisk = loadArtworkFromDisk(context, identity, crop, verticalBias)
+        if (cachedDisk != null) return cachedDisk
+    }
 
     file.delete()
     expiryFile.delete()
+    urlFile.delete()
+
     val connection = openFandomArtworkConnection(url)
     var bitmap: Bitmap? = null
     try {
@@ -168,7 +184,12 @@ fun loadArtwork(context: Context, identity: String, url: String, crop: Float, ex
             file.setLastModified(now)
             val effectiveExpiry = if (expiresAt == Long.MAX_VALUE || expiresAt <= 0L) now + ART_CACHE_TTL_MS else expiresAt
             expiryFile.writeText(effectiveExpiry.toString())
+            urlFile.writeText(url.trim())
         } else temp.delete()
+    } catch (e: Exception) {
+        val fallback = loadArtworkFromDisk(context, identity, crop, verticalBias)
+        if (fallback != null) return fallback
+        throw e
     } finally {
         connection.disconnect()
     }
