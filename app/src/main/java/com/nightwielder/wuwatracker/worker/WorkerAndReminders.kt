@@ -3,6 +3,8 @@ package com.nightwielder.wuwatracker.worker
 import android.Manifest
 import android.app.AlarmManager
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -16,6 +18,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.work.*
+import com.nightwielder.wuwatracker.MainActivity
 import com.nightwielder.wuwatracker.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -39,6 +42,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        createNotificationChannel(this)
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             FEED_WORK,
             ExistingPeriodicWorkPolicy.UPDATE,
@@ -51,6 +55,17 @@ class App : Application() {
     companion object {
         var instance: App? = null
     }
+}
+
+fun createNotificationChannel(context: Context) {
+    val channel = NotificationChannel(
+        CHANNEL_ID,
+        "WuWa reminders",
+        NotificationManager.IMPORTANCE_DEFAULT
+    ).apply {
+        description = "Daily reset and information reminders"
+    }
+    context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
 }
 
 fun nextReset(server: Server, now: Instant = Instant.now()): ZonedDateTime {
@@ -73,9 +88,11 @@ fun hasExactAlarmAccess(context: Context): Boolean =
     android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S ||
             context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
 
-fun scheduleResetAlarm(server: Server, leadMinutes: Int = 0) {
+fun scheduleResetAlarm(server: Server, leadMinutes: Int = 0) =
+    App.instance?.let { scheduleResetAlarm(it, server, leadMinutes) } ?: Unit
+
+fun scheduleResetAlarm(context: Context, server: Server, leadMinutes: Int = 0) {
     if (leadMinutes < 0) return
-    val context = App.instance ?: return
     val now = Instant.now()
     val reset = nextReset(server, now)
     var trigger = reset.toInstant().minusSeconds(leadMinutes * 60L)
@@ -88,8 +105,10 @@ fun scheduleResetAlarm(server: Server, leadMinutes: Int = 0) {
     context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger.toEpochMilli(), pending)
 }
 
-fun scheduleCustomReminder(anchor: Instant) {
-    val context = App.instance ?: return
+fun scheduleCustomReminder(anchor: Instant) =
+    App.instance?.let { scheduleCustomReminder(it, anchor) } ?: Unit
+
+fun scheduleCustomReminder(context: Context, anchor: Instant) {
     val trigger = nextCustomReminderTime(anchor)
     val intent = Intent(context, ResetAlarmReceiver::class.java).putExtra("custom", true).putExtra("custom_at", anchor.toString())
     val pending = PendingIntent.getBroadcast(context, RESET_ALARM + 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -98,18 +117,18 @@ fun scheduleCustomReminder(anchor: Instant) {
     else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger.toEpochMilli(), pending)
 }
 
-fun cancelCustomReminder() {
-    val context = App.instance ?: return
-    val intent = Intent(context, ResetAlarmReceiver::class.java).putExtra("custom", true)
-    val pending = PendingIntent.getBroadcast(context, RESET_ALARM + 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    context.getSystemService(AlarmManager::class.java).cancel(pending)
+fun cancelCustomReminder(context: Context? = null) {
+    val ctx = context ?: App.instance ?: return
+    val intent = Intent(ctx, ResetAlarmReceiver::class.java).putExtra("custom", true)
+    val pending = PendingIntent.getBroadcast(ctx, RESET_ALARM + 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    ctx.getSystemService(AlarmManager::class.java).cancel(pending)
 }
 
-fun cancelResetAlarm() {
-    val context = App.instance ?: return
-    val intent = Intent(context, ResetAlarmReceiver::class.java)
-    val pending = PendingIntent.getBroadcast(context, RESET_ALARM, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    context.getSystemService(AlarmManager::class.java).cancel(pending)
+fun cancelResetAlarm(context: Context? = null) {
+    val ctx = context ?: App.instance ?: return
+    val intent = Intent(ctx, ResetAlarmReceiver::class.java)
+    val pending = PendingIntent.getBroadcast(ctx, RESET_ALARM, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    ctx.getSystemService(AlarmManager::class.java).cancel(pending)
 }
 
 fun enqueueFeedSync(context: Context, immediate: Boolean = false) {
@@ -121,10 +140,10 @@ fun enqueueFeedSync(context: Context, immediate: Boolean = false) {
     }
 }
 
-fun openUrl(url: String) {
+fun openUrl(url: String, context: Context? = null) {
     val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
     if (uri.scheme != "https" || uri.host.isNullOrBlank() || uri.userInfo != null) return
-    val ctx = App.instance ?: return
+    val ctx = context ?: App.instance ?: return
     runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }
 
@@ -135,8 +154,8 @@ class BootReceiver : BroadcastReceiver() {
             kotlinx.coroutines.CoroutineScope(Dispatchers.Default).launch {
                 try {
                     val s = com.nightwielder.wuwatracker.loadState(context)
-                    if (s.reminderEnabled && s.reminderLead >= 0) scheduleResetAlarm(s.server, s.reminderLead)
-                    if (s.reminderEnabled && s.reminderLead == -1) s.customReminderAt?.let(::scheduleCustomReminder)
+                    if (s.reminderEnabled && s.reminderLead >= 0) scheduleResetAlarm(context, s.server, s.reminderLead)
+                    if (s.reminderEnabled && s.reminderLead == -1) s.customReminderAt?.let { scheduleCustomReminder(context, it) }
                     if (s.feedUrl.isNotBlank()) enqueueFeedSync(context)
                 } finally {
                     p.finish()
@@ -152,29 +171,36 @@ class ResetAlarmReceiver : BroadcastReceiver() {
         val server = runCatching { Server.valueOf(intent.getStringExtra("server") ?: Server.SEA.name) }.getOrDefault(Server.SEA)
         val lead = intent.getIntExtra("lead", 0)
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            val contentIntent = PendingIntent.getActivity(
+                context,
+                0,
+                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
             NotificationManagerCompat.from(context).notify(
                 if (custom) 2002 else 2001,
                 NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.ic_popup_reminder)
                     .setContentTitle("Wuthering Waves reminder")
                     .setContentText(if (custom) "Your custom reminder is due." else if (lead == 0) "${server.label} server daily reset is now live." else "${server.label} server reset is in $lead minutes. Finish your dailies and claim Lunite.")
+                    .setContentIntent(contentIntent)
                     .setAutoCancel(true)
                     .build()
             )
         }
         if (custom) {
             val anchor = runCatching { Instant.parse(intent.getStringExtra("custom_at")) }.getOrNull()
-            if (anchor != null) scheduleCustomReminder(anchor) else {
+            if (anchor != null) scheduleCustomReminder(context, anchor) else {
                 val pending = goAsync()
                 kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        com.nightwielder.wuwatracker.loadState(context).customReminderAt?.let(::scheduleCustomReminder)
+                        com.nightwielder.wuwatracker.loadState(context).customReminderAt?.let { scheduleCustomReminder(context, it) }
                     } finally {
                         pending.finish()
                     }
                 }
             }
-        } else scheduleResetAlarm(server, lead)
+        } else scheduleResetAlarm(context, server, lead)
     }
 }
 
