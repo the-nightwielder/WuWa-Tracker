@@ -77,9 +77,11 @@ fun BannersScreen(state: UiState, now: Instant, modifier: Modifier) {
             item { Text("Upcoming Resonator / Weapon Banners", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFBFE8E2)) }
             if (upcoming.isEmpty()) item { InfoCard("Upcoming schedule", "No verified upcoming timing for your selected server is available in the feed.", "Upcoming banners will appear when a source provides server-specific times.") }
             items(upcoming) { b -> BannerOverviewCard(b, false, state.server, cacheEnd(b)?.toEpochMilli() ?: Long.MAX_VALUE, now) }
+            item { Text("Teased Resonator Banners", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFE7DAFF)) }
             if (teased.isNotEmpty()) {
-                item { Text("Teased Resonator Banners", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFE7DAFF)) }
                 items(teased) { b -> BannerOverviewCard(b, false, state.server, Long.MAX_VALUE, now) }
+            } else {
+                item { InfoCard("Teased Resonators", "No future resonators are currently teased.", "New character teasers and drip marketing will appear here once announced by Kuro Games.") }
             }
 
             item { Text("Official Resonator Strategy Guides", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFFFD994)) }
