@@ -16,7 +16,7 @@ This project was developed with substantial AI assistance using an informal “v
 - **Per-Server Reset & Reminders:** Daily reset countdowns for America, Europe, Asia, SEA, and HMT servers, displayed in the device’s local time. Optional reset and custom reminders.
 - **Live Server-Synced Banner Schedules:** Active and upcoming banner cards display exact start and end dates/times synced directly with live Prydwen and Game8 server countdowns across all regional servers (**America**, **Europe**, **Asia**, **HMT**, and **SEA**).
 - **Dynamic Server Switching & Local Time Conversion:** Switching the server in the app instantly updates the banner schedule to match that server's regional schedule, converted side-by-side with your device's auto-detected local timezone (e.g. `IST`, `EDT`, `PST`, `BST`, `SGT`).
-- **5-Star Showcase & Color-Coded Badges:** Resonator banners highlight 5-star debut and rerun resonators (filtering out 4-star rate-ups) and pair them with signature weapons using color-coded badges (`[ 5★ DEBUT ]`, `[ 5★ RERUN ]`, `[ 5★ SIGNATURE ]`, `[ 5★ FEATURED ]`).
+- **5-Star Showcase & Signature Weapon Pairings:** Resonator banners highlight 5-star debut and rerun resonators, automatically pairing them with their signature weapons in order using color-coded badges (`[ 5★ DEBUT ]`, `[ 5★ RERUN ]`, `[ 5★ SIGNATURE ]`, `[ 5★ FEATURED ]`).
 - **Checklists & Endgame Tracking:** Daily, Lunite, and Weekly checklists, plus monthly Endgame checklist reminders for Tower of Adversity, Whimpering Wastes, and Endstate Matrix.
 - **Intelligence Feed:** Categorized feed separating official confirmations, community reports, and unconfirmed leaks with source links and evidence labels.
 
@@ -75,4 +75,4 @@ No open-source license is currently granted for this repository’s original sou
 2. Build the app using the included Gradle wrapper.
 3. For public distribution, create a properly signed release APK. Never commit the signing key or passwords to the repository.
 
-The project targets Android API 35. The current app version is **1.6.0** (version code **160**).
+The project targets Android API 35. The current app version is **1.7.0** (version code **170**).
