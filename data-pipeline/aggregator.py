@@ -998,6 +998,45 @@ def _game8_featured_characters(section):
 
 
 def _game8_featured_weapons(section):
+    # Check Game8's two-column banner overview table (Weapon Banner | Featured Weapons)
+    for table in (node for node in section if node.name == "table"):
+        rows = table.find_all("tr")
+        for i, row in enumerate(rows):
+            tds = row.find_all(["td", "th"])
+            if len(tds) < 2:
+                continue
+            prev_row = rows[i - 1] if i > 0 else None
+            prev_text = clean_text(prev_row.get_text(" ", strip=True)) if prev_row else ""
+            if not re.search(r"weapon\s*banner", prev_text, re.I) and not re.search(r"weapon\s*banner", clean_text(tds[0].get_text()), re.I):
+                continue
+            featured_cell = tds[1]
+            cell_text = clean_text(featured_cell.get_text(" ", strip=True))
+            if not re.search(r"5\s*★.*rate-up", cell_text, re.I):
+                continue
+            cell_html = str(featured_cell)
+            five_star_match = re.search(r"5\s*★\s*limited\s*rate-up\s*:", cell_html, re.I)
+            four_star_match = re.search(r"4\s*★\s*rate-up\s*:", cell_html, re.I)
+            if not five_star_match:
+                continue
+            start_pos = five_star_match.end()
+            end_pos = four_star_match.start() if four_star_match else len(cell_html)
+            five_star_soup = BeautifulSoup(cell_html[start_pos:end_pos], "html.parser")
+            weapons = []
+            for a in five_star_soup.find_all("a"):
+                name = clean_text(a.get_text())
+                if not name:
+                    img = a.find("img")
+                    if img and img.get("alt"):
+                        name = clean_text(img["alt"])
+                name = re.sub(r"^Wuthering\s+Waves\s*[-–:]\s*", "", name, flags=re.I).strip()
+                name = re.sub(r"\s+icon$|\s+banner$", "", name, flags=re.I).strip()
+                if (2 <= len(name) <= 50
+                        and not re.search(r"\b(?:absolute pulsation|banner|weapon|rate-up|icon|limited|note|tier list)\b", name, re.I)
+                        and name.lower() not in {w.lower() for w in weapons}):
+                    weapons.append(name)
+            if weapons:
+                return weapons
+
     weapon_heading = next((node for node in section
                            if node.name in {"h3", "h4"}
                            and re.search(r"\b(?:signature\s+)?weapons?\b",
@@ -1485,7 +1524,19 @@ def main():
                     live_version_candidates.append(snapshot["version"])
                     break
             continue
-        if snapshot.get("snapshotType") != "current":
+        if snapshot.get("snapshotType") == "prydwen":
+            if snapshot.get("scheduleStatus") == "CURRENT":
+                live_version_candidates.append(snapshot["version"])
+            elif snapshot.get("serverTimes"):
+                for timing in snapshot["serverTimes"].values():
+                    try:
+                        start = datetime.fromisoformat(timing["startAt"].replace("Z", "+00:00"))
+                        end = datetime.fromisoformat(timing["endAt"].replace("Z", "+00:00"))
+                    except (AttributeError, KeyError, TypeError, ValueError):
+                        continue
+                    if start <= now_utc <= end:
+                        live_version_candidates.append(snapshot["version"])
+                        break
             continue
         try:
             start = datetime.fromisoformat(snapshot["startAt"].replace("Z", "+00:00"))
@@ -1494,6 +1545,10 @@ def main():
             continue
         if start <= now_utc <= end:
             live_version_candidates.append(snapshot["version"])
+    if not live_version_candidates:
+        for snapshot in snapshots:
+            if snapshot.get("scheduleStatus") in {"CURRENT", "UPCOMING"} and snapshot.get("version"):
+                live_version_candidates.append(snapshot["version"])
     live_version = max(live_version_candidates, key=lambda value: tuple(map(int, value.split(".")))) if live_version_candidates else None
     snapshots = _remove_stale_prydwen_rows(snapshots, live_version)
     snapshots = _harmonize_prydwen_rows(snapshots, live_version)
