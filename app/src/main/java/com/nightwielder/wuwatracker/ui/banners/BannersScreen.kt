@@ -21,8 +21,11 @@ import java.util.Locale
 @Composable
 fun BannersScreen(state: UiState, now: Instant, modifier: Modifier) {
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
-    val version = state.version.takeIf { it != "Unknown" } ?: "3.7"
-    val banners = state.banners.filter { it.relevantBanner(version, now) }
+    val version = state.version.takeIf { it.isNotBlank() && !it.equals("Unknown", true) && !it.equals("null", true) }
+        ?: state.banners.firstOrNull { it.scheduleStatus.equals("CURRENT", true) }?.version
+        ?: state.versions.firstOrNull()?.version
+        ?: ""
+    val banners = state.banners.filter { it.relevantBanner(version.ifBlank { "0.0" }, now) }
 
     fun oneCardPerPhase(rows: List<BannerIntel>) = rows.groupBy { "${it.version.orEmpty()}|${it.phase ?: 0}" }
         .values.mapNotNull { phaseRows ->
@@ -75,7 +78,7 @@ fun BannersScreen(state: UiState, now: Instant, modifier: Modifier) {
     ArtworkScreen(modifier, com.nightwielder.wuwatracker.R.drawable.bg_intel) {
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { Text("Resonator & Weapon Banners", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color(0xFFF3E9FF)) }
-            item { Text("Current version · $version", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFFFFD994)) }
+            if (version.isNotBlank()) item { Text("Current version · $version", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFFFFD994)) }
             item { Text("Active Resonator / Weapon Banners", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFE7DAFF)) }
             if (active.isEmpty()) item { InfoCard("Live schedule", "No verified timing for your selected server is available in the feed.", "") }
             items(active) { b -> BannerOverviewCard(b, true, state.server, cacheEnd(b)?.toEpochMilli() ?: Long.MAX_VALUE, now) }
