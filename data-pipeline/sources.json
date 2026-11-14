@@ -122,13 +122,6 @@
       "url": "https://www.prydwen.gg/wuthering-waves/banners",
       "category": "community",
       "priority": 97
-    },
-    {
-      "id": "wuwatracker-timeline-weapons",
-      "kind": "timeline_weapons",
-      "url": "https://wuwatracker.com/timeline",
-      "category": "community",
-      "priority": 93
     }
   ]
 }
