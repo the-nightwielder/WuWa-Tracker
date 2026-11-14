@@ -21,6 +21,7 @@ from bs4 import BeautifulSoup
 ROOT = Path(__file__).resolve().parent
 SOURCES = json.loads((ROOT / "sources.json").read_text())['sources']
 OUT = ROOT / "feed.json"
+WEAPON_REGISTRY_FILE = ROOT / "weapon_registry.json"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 TIMEOUT = 20
 MAX_SOURCE_RESPONSE_BYTES = 10 * 1024 * 1024
@@ -1476,8 +1477,29 @@ def prydwen_banner_snapshot(soup, text, url, now):
     return None
 
 
+def _registry_lookup(mapping, name):
+    if not name:
+        return None
+    if name in mapping:
+        return mapping[name]
+    norm = re.sub(r"[:()\-_]", " ", name).strip().lower()
+    norm = re.sub(r"\s+", " ", norm)
+    for k, v in mapping.items():
+        k_norm = re.sub(r"[:()\-_]", " ", k).strip().lower()
+        k_norm = re.sub(r"\s+", " ", k_norm)
+        if k_norm == norm:
+            return v
+    return None
+
+
 def main():
-    items, errors, snapshots, timeline_weapons, next_version_searches = [], [], [], {}, []
+    timeline_weapons = {}
+    if WEAPON_REGISTRY_FILE.exists():
+        try:
+            timeline_weapons.update(json.loads(WEAPON_REGISTRY_FILE.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    items, errors, snapshots, next_version_searches = [], [], [], []
     for source in SOURCES:
         try:
             if source['kind'] == 'timeline_weapons':
@@ -1577,13 +1599,26 @@ def main():
                 if character and weapon and character not in timeline_weapons:
                     timeline_weapons[character] = weapon
 
+    if WEAPON_REGISTRY_FILE.exists():
+        try:
+            current_saved = json.loads(WEAPON_REGISTRY_FILE.read_text(encoding="utf-8"))
+            if current_saved != timeline_weapons:
+                current_saved.update(timeline_weapons)
+                WEAPON_REGISTRY_FILE.write_text(json.dumps(current_saved, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
     for snapshot in snapshots:
         characters = [part.strip() for part in re.split(r",|\band\b", snapshot.get("title", "")) if part.strip()]
-        weapons = []
-        if snapshot.get("weapon"):
-            weapons = [w.strip() for w in snapshot["weapon"].split(",") if w.strip()]
+        scraped_weapons = [w.strip() for w in snapshot["weapon"].split(",") if w.strip()] if snapshot.get("weapon") else []
+        if len(scraped_weapons) >= len(characters) and characters:
+            weapons = scraped_weapons
         else:
-            weapons = list(dict.fromkeys(timeline_weapons[name] for name in characters if name in timeline_weapons))
+            weapons = [_registry_lookup(timeline_weapons, c) or (scraped_weapons[i] if i < len(scraped_weapons) else None)
+                       for i, c in enumerate(characters)]
+            weapons = [w for w in weapons if w]
+            if not weapons and scraped_weapons:
+                weapons = scraped_weapons
 
         art = snapshot.pop("bannerArtwork", [])
         if "GenGamer" in snapshot.get("sourceLabel", "") and len(art) >= 6:
