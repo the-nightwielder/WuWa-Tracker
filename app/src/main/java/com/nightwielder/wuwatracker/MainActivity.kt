@@ -362,25 +362,42 @@ fun parseFeed(raw: String?): FeedResult {
     val bannerRows = rawBannerRows.map { b ->
         val characters = b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }.filter { it.isNotBlank() }
         val currentClaimWeapons = b.weaponClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map { it.trim() }?.filter { it.isNotBlank() }.orEmpty()
-        val registeredWeapons = characters.mapNotNull { name ->
+        val alignedWeapons = characters.mapNotNull { name ->
             val norm = normChar(name)
-            weaponDetails.entries.firstOrNull { it.key.equals(name, true) || normChar(it.key) == norm }?.value
+            val signature = weaponDetails.entries.firstOrNull { it.key.equals(name, true) || normChar(it.key) == norm }?.value
+            if (signature != null) {
+                currentClaimWeapons.firstOrNull { it.equals(signature, true) } ?: signature
+            } else null
         }
-        val finalWeapons = if (currentClaimWeapons.size >= characters.size && characters.isNotEmpty()) {
-            currentClaimWeapons
-        } else if (registeredWeapons.size >= characters.size && characters.isNotEmpty()) {
-            registeredWeapons
+        val finalWeapons = if (alignedWeapons.size >= characters.size && characters.isNotEmpty()) {
+            alignedWeapons
         } else if (currentClaimWeapons.isNotEmpty()) {
-            currentClaimWeapons
+            val extras = currentClaimWeapons.filter { w -> alignedWeapons.none { it.equals(w, true) } }
+            alignedWeapons + extras
         } else {
-            registeredWeapons
+            alignedWeapons
         }
         if (finalWeapons.isNotEmpty()) b.copy(weaponClaim = finalWeapons.joinToString(", ")) else b
     }
     val banners = bannerRows.groupBy { "${it.version.orEmpty()}|${it.phase ?: 0}" }
         .values.mapNotNull { rows ->
             val best = rows.maxByOrNull { (if (it.weaponClaim.isNullOrBlank()) 0 else 10 + it.weaponClaim.length) + it.weaponImages.size * 3 + it.resonatorImages.size + it.serverTimes.size * 100 + (if (it.scheduleStatus.equals("TEASED", true)) 20 else 0) } ?: return@mapNotNull null
-            val weaponClaim = best.weaponClaim.takeIf { !it.isNullOrBlank() } ?: rows.mapNotNull { it.weaponClaim }.firstOrNull { it.isNotBlank() }
+            val rawClaim = best.weaponClaim.takeIf { !it.isNullOrBlank() } ?: rows.mapNotNull { it.weaponClaim }.firstOrNull { it.isNotBlank() }
+            val characters = best.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }.filter { it.isNotBlank() }
+            val claimWeapons = rawClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map { it.trim() }?.filter { it.isNotBlank() }.orEmpty()
+            val aligned = characters.mapNotNull { name ->
+                val norm = normChar(name)
+                val signature = weaponDetails.entries.firstOrNull { it.key.equals(name, true) || normChar(it.key) == norm }?.value
+                if (signature != null) {
+                    claimWeapons.firstOrNull { it.equals(signature, true) } ?: signature
+                } else null
+            }
+            val weaponClaim = if (aligned.size >= characters.size && characters.isNotEmpty()) {
+                aligned.joinToString(", ")
+            } else if (claimWeapons.isNotEmpty()) {
+                val extras = claimWeapons.filter { w -> aligned.none { it.equals(w, true) } }
+                (aligned + extras).joinToString(", ")
+            } else rawClaim
             val weaponImages = if (best.weaponImages.isNotEmpty()) best.weaponImages else rows.flatMap { it.weaponImages.entries }.associate { it.key to it.value }
             best.copy(weaponClaim = weaponClaim, weaponImages = weaponImages)
         }
