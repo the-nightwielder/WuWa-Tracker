@@ -64,13 +64,6 @@
       "priority": 56
     },
     {
-      "id": "wuwabanners-schedule",
-      "kind": "google_news",
-      "query": "site:wuwabanners.net Wuthering Waves current banner phase schedule weapon",
-      "category": "community",
-      "priority": 92
-    },
-    {
       "id": "gengamer-countdown",
       "kind": "google_news",
       "query": "site:wuthering-countdown.gengamer.in Wuthering Waves upcoming Resonator banner countdown",
@@ -104,14 +97,6 @@
       "query": "site:ldshop.gg Wuthering Waves banner leaks upcoming Resonator",
       "category": "leak-community",
       "priority": 61
-    },
-    {
-      "id": "wuwabanners-snapshot",
-      "kind": "banner_snapshot",
-      "snapshotType": "current",
-      "url": "https://wuwabanners.net/",
-      "category": "community",
-      "priority": 95
     },
     {
       "id": "gengamer-snapshot",
