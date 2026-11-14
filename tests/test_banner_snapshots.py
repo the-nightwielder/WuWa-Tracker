@@ -193,30 +193,6 @@ class Game8ScheduleParsingTest(unittest.TestCase):
         self.assertEqual([1, 2], [row["phase"] for row in snapshots])
         self.assertEqual("UPCOMING", snapshots[1]["scheduleStatus"])
 
-    def test_game8_times_attach_to_wuwabuild_rows_by_unique_version_phase_and_status(self):
-        times = {server: {"startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z"}
-                 for server in ("AMERICA", "EUROPE", "ASIA", "HMT", "SEA")}
-        wuwabuild = {
-            "snapshotType": "wuwabuild", "title": "Hsin, Chisa, Iuno", "version": "3.7", "phase": 1,
-            "scheduleStatus": "CURRENT", "sourceLabel": "WuWaBuild banner schedule",
-            "sourceUrls": ["https://www.wuwabuild.com/banners"],
-            "startAt": "2026-09-30T00:00:00Z", "endAt": "2026-10-22T23:59:59Z",
-        }
-        game8 = {
-            "snapshotType": "game8", "title": "Hsin, Chisa, Iuno", "version": "3.7", "phase": 1,
-            "scheduleStatus": "CURRENT", "sourceLabel": "Game8 Banner Schedule",
-            "sourceUrls": ["https://game8.co/current"], "serverTimes": times,
-            "startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z",
-        }
-
-        _harmonize_prydwen_rows([wuwabuild, game8])
-
-        self.assertEqual(times, wuwabuild["serverTimes"])
-        self.assertEqual(game8["startAt"], wuwabuild["startAt"])
-        self.assertEqual(game8["endAt"], wuwabuild["endAt"])
-        self.assertIn("Game8", wuwabuild["sourceLabel"])
-        self.assertEqual(["https://www.wuwabuild.com/banners", "https://game8.co/current"], wuwabuild["sourceUrls"])
-
     def test_game8_times_attach_to_prydwen_row_when_roster_differs_but_phase_is_unique(self):
         times = {server: {"startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z"}
                  for server in ("AMERICA", "EUROPE", "ASIA", "HMT", "SEA")}
@@ -247,17 +223,13 @@ class Game8ScheduleParsingTest(unittest.TestCase):
             "sourceUrls": ["https://game8.co/" + title], "confidence": 0.9, "serverTimes": times,
             "startAt": "2026-09-30T01:00:00Z", "endAt": "2026-10-22T01:00:00Z",
         } for title in ("Other, Names, Here", "Different, Names, Here")]
-        wuwabuild = {
-            "snapshotType": "wuwabuild", "title": "Hsin, Chisa, Iuno", "version": "3.7", "phase": 1,
-            "scheduleStatus": "CURRENT", "sourceLabel": "WuWaBuild banner schedule", "sourceUrls": [],
-        }
         prydwen = {
             "snapshotType": "prydwen", "title": "Hsin, Chisa", "version": "3.7", "phase": 1,
             "scheduleStatus": "CURRENT", "sourceLabel": "Prydwen Banner Overview",
             "sourceUrls": ["https://www.prydwen.gg/wuthering-waves/banners"], "confidence": 0.9,
         }
 
-        _harmonize_prydwen_rows([*game8_rows, wuwabuild, prydwen])
+        _harmonize_prydwen_rows([*game8_rows, prydwen])
 
         self.assertFalse(prydwen.get("serverTimes"))
 
@@ -406,17 +378,17 @@ class PrydwenBannerParsingTest(unittest.TestCase):
         self.assertEqual("Game8 Banner Schedule + Prydwen Banner Overview", prydwen["sourceLabel"])
         self.assertEqual("TEASED", rows[2]["scheduleStatus"])
 
-    def test_wuwabuild_supplies_featured_five_star_names_without_inventing_dates(self):
-        wuwabuild = {
-            "snapshotType": "wuwabuild", "title": "Hsin, Chisa, Iuno", "version": "3.7", "phase": 1,
-            "scheduleStatus": "CURRENT", "sourceLabel": "WuWaBuild Banner Schedule", "sourceUrls": [],
+    def test_game8_supplies_featured_five_star_names_without_inventing_dates(self):
+        game8 = {
+            "snapshotType": "game8", "title": "Hsin, Chisa, Iuno", "version": "3.7", "phase": 1,
+            "scheduleStatus": "CURRENT", "sourceLabel": "Game8 Banner Schedule", "sourceUrls": [],
         }
         prydwen = {
             "snapshotType": "prydwen", "title": "Hsin, Buling, Taoqi, Chisa, Iuno", "version": "3.7", "phase": 1,
             "scheduleStatus": "CURRENT", "sourceLabel": "Prydwen Banner Overview", "sourceUrls": [],
         }
 
-        _harmonize_prydwen_rows([wuwabuild, prydwen], "3.7")
+        _harmonize_prydwen_rows([game8, prydwen], "3.7")
 
         self.assertEqual("Hsin, Chisa, Iuno", prydwen["title"])
         self.assertNotIn("startAt", prydwen)
