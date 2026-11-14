@@ -512,9 +512,7 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
     val bannerSummary = listOfNotNull(b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }, scheduleDescription).joinToString(" · ")
     val expandedSummary = listOfNotNull(b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }, scheduleRange.takeIf { it.isNotBlank() }?.plus(scheduleSuffix)).joinToString(" · ").ifBlank { missingScheduleLabel }
     val names = b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(Locale.ROOT) }.take(3)
-    val mappedWeapons = names.mapNotNull { WeaponMapping.resolveSignatureWeapon(it) }.distinctBy { it.lowercase(Locale.ROOT) }
-    val rawWeapons = b.weaponClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map { it.trim() }?.filter { it.isNotBlank() }?.distinctBy { it.lowercase(Locale.ROOT) }.orEmpty()
-    val weapons = (if (rawWeapons.size >= names.size && names.isNotEmpty()) rawWeapons else if (mappedWeapons.isNotEmpty()) mappedWeapons else rawWeapons).take(3)
+    val weapons = b.weaponClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map { it.trim() }?.filter { it.isNotBlank() }?.distinctBy { it.lowercase(Locale.ROOT) }.orEmpty().take(3)
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (current) Color(0xFF292438) else Color(0xFF26323C))) {
         Column {
             durationText?.let { text ->
