@@ -254,7 +254,19 @@ fun durationText(d: Duration): String {
     return if (days > 0) "%dd %02dh %02dm".format(days, hours, mins) else "%02dh %02dm %02ds".format(hours, mins, secs)
 }
 
-fun UiState.withFeed(f: FeedResult) = copy(feedItems = f.items, events = mergeEvents(defaultEvents(), f.events), versions = f.versions, banners = f.banners, resonators = f.resonators, version = f.latestVersion ?: version, lastSync = Instant.now().toString())
+fun UiState.withFeed(f: FeedResult) = copy(
+    feedItems = f.items,
+    events = mergeEvents(defaultEvents(), f.events),
+    versions = f.versions,
+    banners = f.banners,
+    resonators = f.resonators,
+    version = f.latestVersion?.takeIf { it.isNotBlank() && !it.equals("null", true) && !it.equals("Unknown", true) }
+        ?: f.banners.firstOrNull { it.scheduleStatus.equals("CURRENT", true) }?.version
+        ?: f.versions.firstOrNull()?.version
+        ?: version.takeIf { it.isNotBlank() && !it.equals("null", true) }
+        ?: "Unknown",
+    lastSync = Instant.now().toString()
+)
 
 suspend fun loadState(context: Context): UiState {
     val p = context.dataStore.data.first()
@@ -273,7 +285,10 @@ suspend fun loadState(context: Context): UiState {
         weeklyDoneDate = p[stringPreferencesKey("weekly_done_date")] ?: "",
         reminderEnabled = p[booleanPreferencesKey("reminder")] ?: true,
         reminderLead = p[intPreferencesKey("lead")]?.let { if (it == -1) -1 else it.coerceIn(0, 60) } ?: 0,
-        version = p[stringPreferencesKey("version")] ?: "Unknown",
+        version = p[stringPreferencesKey("version")]?.takeIf { it.isNotBlank() && !it.equals("Unknown", true) && !it.equals("null", true) }
+            ?: f.banners.firstOrNull { it.scheduleStatus.equals("CURRENT", true) }?.version
+            ?: f.versions.firstOrNull()?.version
+            ?: "Unknown",
         events = mergeEvents(defaultEvents(), f.events),
         feedItems = f.items,
         versions = f.versions,
@@ -344,14 +359,22 @@ fun parseFeed(raw: String?): FeedResult {
             parseBanners(root.optJSONArray("activeBanners") ?: JSONArray()) +
             parseBanners(root.optJSONArray("upcomingBanners") ?: JSONArray())
     val bannerRows = rawBannerRows.map { b ->
-        if (!b.weaponClaim.isNullOrBlank()) b
-        else {
-            val characters = b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }
-            val weapons = characters.mapNotNull { name ->
-                weaponDetails.entries.firstOrNull { it.key.equals(name, true) }?.value
-            }
-            if (weapons.isNotEmpty()) b.copy(weaponClaim = weapons.joinToString(", ")) else b
+        val characters = b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }.filter { it.isNotBlank() }
+        val mappedWeapons = characters.mapNotNull { name ->
+            weaponDetails.entries.firstOrNull { it.key.equals(name, true) }?.value
+                ?: com.nightwielder.wuwatracker.data.WeaponMapping.resolveSignatureWeapon(name)
         }
+        val currentClaimWeapons = b.weaponClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map { it.trim() }?.filter { it.isNotBlank() }.orEmpty()
+        val finalWeapons = if (currentClaimWeapons.size >= characters.size && characters.isNotEmpty()) {
+            currentClaimWeapons
+        } else if (mappedWeapons.size >= characters.size && characters.isNotEmpty()) {
+            mappedWeapons
+        } else if (currentClaimWeapons.isNotEmpty()) {
+            currentClaimWeapons
+        } else {
+            mappedWeapons
+        }
+        if (finalWeapons.isNotEmpty()) b.copy(weaponClaim = finalWeapons.joinToString(", ")) else b
     }
     val banners = bannerRows.groupBy { "${it.version.orEmpty()}|${it.phase ?: 0}" }
         .values.mapNotNull { rows ->
@@ -366,7 +389,8 @@ fun parseFeed(raw: String?): FeedResult {
         parseVersions(root.optJSONArray("versions") ?: JSONArray()),
         banners,
         parseResonators(root.optJSONArray("resonators") ?: JSONArray()),
-        root.optString("latestVersion").takeIf { it.isNotBlank() } ?: root.optString("version").takeIf { it.isNotBlank() }
+        root.optString("latestVersion").takeIf { it.isNotBlank() && !it.equals("null", true) }
+            ?: root.optString("version").takeIf { it.isNotBlank() && !it.equals("null", true) }
     )
 }
 
