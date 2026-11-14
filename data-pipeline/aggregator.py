@@ -359,76 +359,6 @@ def banner_snapshot(source):
         return game8_banner_snapshot(source, soup, text, url, now)
     if source.get("snapshotType") == "prydwen":
         return prydwen_banner_snapshot(soup, text, url, now)
-    if source.get("snapshotType") == "wuwabuild":
-        version = VERSION_RE.search(text)
-        resonator_art, weapon_art, art_weapon_urls = [], [], {}
-        nodes = soup.find_all(["img", "a"])
-        for node in nodes:
-            label = clean_text(node.get("alt", "") or node.get("title", "") or node.get_text(" ", strip=True))
-            if re.search(r"\bResonator\b", label, re.I):
-                candidate = re.sub(r"^.*?\bResonator\s+", "", label, flags=re.I).strip()
-                if candidate:
-                    resonator_art.append(candidate.split()[-1].strip(" -–:"))
-            if re.search(r"\bWeapon\b", label, re.I):
-                candidate = re.sub(r"^.*?\bWeapon(?:\s+Absolute\s+Pulsation:)?\s*", "", label, flags=re.I).strip(" .:-")
-                parts = candidate.split()
-                if len(parts) >= 2 and len(parts) % 2 == 0 and " ".join(parts[:len(parts)//2]).lower() == " ".join(parts[len(parts)//2:]).lower():
-                    candidate = " ".join(parts[:len(parts)//2])
-                if candidate:
-                    weapon_art.append(candidate)
-                    image_url = node.get("src") or node.get("data-src")
-                    if image_url:
-                        art_weapon_urls[candidate] = urljoin(url, image_url)
-        art_weapon_map = dict(zip(resonator_art, weapon_art))
-        output = []
-        for anchor in soup.find_all("a"):
-            card = clean_text(anchor.get_text(" ", strip=True))
-            vm = VERSION_RE.search(card)
-            pm = re.search(r"Phase\s*([12])", card, re.I)
-            if not vm or not pm or not re.search(r"Featured weapons?:", card, re.I):
-                continue
-            # Character names appear immediately after the rarity marker.
-            names_match = re.search(r"5\s*★\s*(.+?)\s+(?:First|Second|Third)\s+limited banner", card, re.I)
-            if not names_match:
-                continue
-            names = re.sub(r"\s*\+\s*", ", ", clean_text(names_match.group(1))).replace(" and ", ", ")
-            names = re.sub(r"\s*,\s*", ", ", names).strip(" ,")
-            weapon_match = re.search(r"Featured weapons?:\s*(.+?)\.(?:Ends|Launch|$)", card, re.I)
-            weapon = clean_text(weapon_match.group(1)).rstrip(" .") if weapon_match else None
-            date_match = re.search(r"\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{1,2})\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{1,2})\b", card, re.I)
-            start = end = None
-            if date_match:
-                from datetime import date as calendar_date
-                months = {m.upper(): i for i, m in enumerate(("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"), 1)}
-                year = datetime.now(timezone.utc).year
-                sm, sd, em, ed = date_match.groups()
-                start_date = calendar_date(year, months[sm.upper()], int(sd))
-                end_year = year + (1 if months[em.upper()] < months[sm.upper()] else 0)
-                end_date = calendar_date(end_year, months[em.upper()], int(ed))
-                start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
-                end = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
-            resonators = [name.strip() for name in names.split(",") if name.strip()]
-            weapons = [art_weapon_map[name] for name in resonators if name in art_weapon_map]
-            weapons += [part.strip() for part in (weapon or "").split(",") if part.strip()]
-            weapons = list(dict.fromkeys(weapons))
-            schedule_status = None
-            if start and end:
-                start_instant = datetime.fromisoformat(start.replace("Z", "+00:00"))
-                end_instant = datetime.fromisoformat(end.replace("Z", "+00:00"))
-                current_instant = datetime.now(timezone.utc)
-                schedule_status = "CURRENT" if start_instant <= current_instant <= end_instant else "UPCOMING" if start_instant > current_instant else None
-            output.append({
-                "title": ", ".join(resonators), "version": vm.group(1), "phase": int(pm.group(1)),
-                "startAt": start, "endAt": end, "weapon": ", ".join(weapons),
-                "scheduleStatus": schedule_status,
-                "resonatorImages": {name: image for name in resonators if (image := fandom_image(name))},
-                "weaponImages": {name: image for name in weapons if (image := (fandom_image(name) or art_weapon_urls.get(name)))},
-                "status": "COMMUNITY", "confidence": 0.86,
-                "sourceLabel": "WuWaBuild banner schedule", "sourceUrls": [url], "snapshotAt": now
-            })
-        if output:
-            return output
-        return None
     if source.get("snapshotType") == "current":
         current = re.search(r"Current WuWa banner\s*:\s*([^\.]+?)\.\s*Banner", text, re.I)
         version = VERSION_RE.search(text)
@@ -484,25 +414,6 @@ def banner_snapshot(source):
         "status": "COMMUNITY", "confidence": 0.78,
         "sourceLabel": "GenGamer Countdown", "sourceUrls": [url], "snapshotAt": now
     }
-
-
-def timeline_weapon_details(source):
-    """Read labeled weapon-banner artwork from the public WuWa Tracker timeline."""
-    r, body = bounded_get(source["url"])
-    soup = BeautifulSoup(body.decode(r.encoding or 'utf-8', errors='replace'), "html.parser")
-    details, labels = {}, []
-    for node in soup.find_all(["img", "a", "figure", "div"]):
-        for value in (node.get("alt", ""), node.get("title", ""), node.get("aria-label", "")):
-            if value:
-                labels.append(clean_text(value))
-    labels += [clean_text(s.get_text(" ", strip=True)) for s in soup.find_all("script") if s.string]
-    for label in labels:
-        match = re.search(r"([A-Z][A-Za-z0-9'’ -]{1,60}?)\s*[-–:]\s*([A-Z][A-Za-z0-9'’ -]{1,30}?)\s+Weapon Banner", label, re.I)
-        if match:
-            weapon, character = (clean_text(x).strip(" -–:") for x in match.groups())
-            if weapon and character and character.lower() not in {"weapon", "banner"}:
-                details[character] = weapon
-    return details
 
 
 GAME8_SERVER_ROWS = {
@@ -1215,23 +1126,7 @@ def _harmonize_prydwen_rows(snapshots, live_version=None):
         if row.get("snapshotType") == "game8"
         and has_complete_server_schedule(row)
     ]
-    name_sources = [row for row in snapshots if row.get("snapshotType") in {"game8", "wuwabuild"}]
-
-    # WuWaBuild has useful featured-character and weapon data but only publishes
-    # calendar dates. Attach Game8's complete regional schedule by version/phase
-    # so the app does not have to display an unspecific UTC date as a banner time.
-    for row in snapshots:
-        if row.get("snapshotType") != "wuwabuild" or row.get("serverTimes"):
-            continue
-        candidates = [candidate for candidate in schedules
-                      if candidate.get("version") == row.get("version")
-                      and candidate.get("phase") == row.get("phase")
-                      and candidate.get("scheduleStatus") == row.get("scheduleStatus")]
-        if len(candidates) == 1:
-            timed = candidates[0]
-            row.update({key: timed[key] for key in ("startAt", "endAt", "serverTimes", "timingBasis") if key in timed})
-            row["sourceLabel"] = f"{row.get('sourceLabel', 'WuWaBuild banner schedule')} + Game8 Banner Schedule"
-            row["sourceUrls"] = list(dict.fromkeys(row.get("sourceUrls", []) + timed.get("sourceUrls", [])))
+    name_sources = [row for row in snapshots if row.get("snapshotType") == "game8"]
 
     for row in snapshots:
         if row.get("snapshotType") != "prydwen":
@@ -1254,7 +1149,7 @@ def _harmonize_prydwen_rows(snapshots, live_version=None):
                 continue
         names = {name.strip().casefold() for name in re.split(r",|\band\b", row.get("title", "")) if name.strip()}
         candidates = [candidate for candidate in name_sources
-                      if (candidate.get("snapshotType") == "wuwabuild" or candidate.get("scheduleStatus") == row.get("scheduleStatus"))
+                      if candidate.get("scheduleStatus") == row.get("scheduleStatus")
                       and candidate.get("version") == row.get("version")
                       and candidate.get("phase") == row.get("phase")]
         best = max(candidates, key=lambda candidate: len(names & {
@@ -1502,9 +1397,6 @@ def main():
     items, errors, snapshots, next_version_searches = [], [], [], []
     for source in SOURCES:
         try:
-            if source['kind'] == 'timeline_weapons':
-                timeline_weapons.update(timeline_weapon_details(source))
-                continue
             if source['kind'] == 'google_news' and source.get('category') == 'leak-community':
                 next_version_searches.append(source)
                 continue
@@ -1611,14 +1503,19 @@ def main():
     for snapshot in snapshots:
         characters = [part.strip() for part in re.split(r",|\band\b", snapshot.get("title", "")) if part.strip()]
         scraped_weapons = [w.strip() for w in snapshot["weapon"].split(",") if w.strip()] if snapshot.get("weapon") else []
-        if len(scraped_weapons) >= len(characters) and characters:
-            weapons = scraped_weapons
+        aligned_weapons = []
+        for c in characters:
+            sig = _registry_lookup(timeline_weapons, c)
+            if sig:
+                match = next((w for w in scraped_weapons if w.lower() == sig.lower()), None)
+                aligned_weapons.append(match or sig)
+        if len(aligned_weapons) >= len(characters) and characters:
+            weapons = aligned_weapons
+        elif scraped_weapons:
+            extras = [w for w in scraped_weapons if not any(w.lower() == a.lower() for a in aligned_weapons)]
+            weapons = aligned_weapons + extras
         else:
-            weapons = [_registry_lookup(timeline_weapons, c) or (scraped_weapons[i] if i < len(scraped_weapons) else None)
-                       for i, c in enumerate(characters)]
-            weapons = [w for w in weapons if w]
-            if not weapons and scraped_weapons:
-                weapons = scraped_weapons
+            weapons = aligned_weapons
 
         art = snapshot.pop("bannerArtwork", [])
         if "GenGamer" in snapshot.get("sourceLabel", "") and len(art) >= 6:
