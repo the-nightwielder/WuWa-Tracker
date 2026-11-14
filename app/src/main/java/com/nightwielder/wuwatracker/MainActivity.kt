@@ -354,25 +354,26 @@ fun parseFeed(raw: String?): FeedResult {
         require(value !is JSONArray || value.length() <= MAX_FEED_ARRAY_ITEMS) { "Feed contains too many records" }
     }
     val weaponDetails = stringMap(root.optJSONObject("weaponDetails"))
+    fun normChar(s: String) = s.replace(Regex("[:()\\-_]"), " ").replace(Regex("\\s+"), " ").trim().lowercase(java.util.Locale.ROOT)
     val rawBannerRows = parseBanners(root.optJSONArray("scheduleSnapshots") ?: JSONArray()) +
             parseBanners(root.optJSONArray("banners") ?: JSONArray()) +
             parseBanners(root.optJSONArray("activeBanners") ?: JSONArray()) +
             parseBanners(root.optJSONArray("upcomingBanners") ?: JSONArray())
     val bannerRows = rawBannerRows.map { b ->
         val characters = b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }.filter { it.isNotBlank() }
-        val mappedWeapons = characters.mapNotNull { name ->
-            weaponDetails.entries.firstOrNull { it.key.equals(name, true) }?.value
-                ?: com.nightwielder.wuwatracker.data.WeaponMapping.resolveSignatureWeapon(name)
-        }
         val currentClaimWeapons = b.weaponClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map { it.trim() }?.filter { it.isNotBlank() }.orEmpty()
+        val registeredWeapons = characters.mapNotNull { name ->
+            val norm = normChar(name)
+            weaponDetails.entries.firstOrNull { it.key.equals(name, true) || normChar(it.key) == norm }?.value
+        }
         val finalWeapons = if (currentClaimWeapons.size >= characters.size && characters.isNotEmpty()) {
             currentClaimWeapons
-        } else if (mappedWeapons.size >= characters.size && characters.isNotEmpty()) {
-            mappedWeapons
+        } else if (registeredWeapons.size >= characters.size && characters.isNotEmpty()) {
+            registeredWeapons
         } else if (currentClaimWeapons.isNotEmpty()) {
             currentClaimWeapons
         } else {
-            mappedWeapons
+            registeredWeapons
         }
         if (finalWeapons.isNotEmpty()) b.copy(weaponClaim = finalWeapons.joinToString(", ")) else b
     }
