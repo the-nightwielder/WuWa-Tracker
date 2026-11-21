@@ -8,7 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -410,9 +410,9 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
                 item(key = "section-" + g.status) { SectionHeader(g, closed) { onToggle(g.status) } }
                 if (!closed) {
                     if (rows.isEmpty() && gb.isEmpty() && gr.isEmpty()) item { EmptyIntelCard(g.title, g.emptyMessage) }
-                    items(rows, key = { "news-" + g.status + "-" + it.url }) { FeedCard(it) }
-                    items(gb, key = { "banner-" + g.status + "-" + it.title }) { b -> IntelCard(b.title, listOfNotNull(b.version?.let { "Version " + it }, b.phase?.let { phaseLabel(it) }, b.scheduleStatus?.let { "Banner status: " + it.lowercase(Locale.ROOT).replaceFirstChar(Char::uppercase) }, b.status, "Source: " + b.sourceLabel).joinToString(" · "), b.sourceUrls.firstOrNull()) }
-                    items(gr, key = { "res-" + g.status + "-" + it.name }) { r -> IntelCard(r.name, listOfNotNull(r.version?.let { "Version " + it }, r.phase?.let { phaseLabel(it) }, r.element, r.weapon, g.status, "Source: " + r.sourceLabel).joinToString(" · "), r.sourceUrls.firstOrNull()) }
+                    itemsIndexed(rows, key = { i, it -> "news-${g.status}-$i-${it.url.ifBlank { it.title }}" }) { _, it -> FeedCard(it) }
+                    itemsIndexed(gb, key = { i, b -> "banner-${g.status}-$i-${b.title}-${b.version}-${b.phase}" }) { _, b -> IntelCard(b.title, listOfNotNull(b.version?.let { "Version " + it }, b.phase?.let { phaseLabel(it) }, b.scheduleStatus?.let { "Banner status: " + it.lowercase(Locale.ROOT).replaceFirstChar(Char::uppercase) }, b.status, "Source: " + b.sourceLabel).joinToString(" · "), b.sourceUrls.firstOrNull()) }
+                    itemsIndexed(gr, key = { i, r -> "res-${g.status}-$i-${r.name}-${r.version}" }) { _, r -> IntelCard(r.name, listOfNotNull(r.version?.let { "Version " + it }, r.phase?.let { phaseLabel(it) }, r.element, r.weapon, g.status, "Source: " + r.sourceLabel).joinToString(" · "), r.sourceUrls.firstOrNull()) }
                 }
             }
         }
