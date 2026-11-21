@@ -1106,16 +1106,11 @@ def _harmonize_prydwen_rows(snapshots, live_version=None):
                 row["version"] = f"{major}.{minor + 1}"
             continue
         if row.get("scheduleStatus") == "UPCOMING" and row.get("phase") is None and not row.get("serverTimes"):
-            # A singleton without a phase is a tease; a multi-character group
-            # remains an upcoming lineup. Ambiguous headings target next version.
-            names_in_row = [name.strip() for name in re.split(r",|\band\b", row.get("title", "")) if name.strip()]
-            if len(names_in_row) == 1:
-                row["scheduleStatus"] = "TEASED"
+            row["scheduleStatus"] = "TEASED"
             if not row.get("version") and live_version:
                 major, minor = map(int, live_version.split("."))
                 row["version"] = f"{major}.{minor + 1}"
-            if row.get("scheduleStatus") == "TEASED":
-                continue
+            continue
         names = {name.strip().casefold() for name in re.split(r",|\band\b", row.get("title", "")) if name.strip()}
         candidates = [candidate for candidate in name_sources
                       if candidate.get("scheduleStatus") == row.get("scheduleStatus")
@@ -1236,6 +1231,70 @@ def prydwen_banner_snapshot(soup, text, url, now):
         phase_match = re.search(r"phase\s*(?:([12])|([iv]+))", low)
         phase = int(phase_match.group(1)) if phase_match and phase_match.group(1) else (2 if phase_match and phase_match.group(2) == "ii" else 1 if phase_match and phase_match.group(2) == "i" else None)
         if not section_status or (not version_value and section_status != "TEASED" and not (section_status == "UPCOMING" and "expected banner" in low)):
+            continue
+
+        timer_node = heading.find_next("div", attrs={"data-banner-timer": "true"})
+        if timer_node and timer_node.find_previous(["h2", "h3", "h4"]) is not heading:
+            timer_node = None
+        has_real_timer = bool(timer_node and timer_node.get("data-start-na") and timer_node.get("data-end-na"))
+
+        cards = []
+        for art in heading.find_all_next("article", class_=re.compile(r"banner-card", re.I)):
+            if art.find_previous(["h2", "h3", "h4"]) is not heading:
+                break
+            cards.append(art)
+
+        if cards and (not has_real_timer or "expected banner" in low or "teased" in low):
+            for art in cards:
+                card_text = art.get_text(" ", strip=True)
+                is_tba = bool(re.search(r"\bTBA\b", card_text, re.I) or "--d --h" in card_text)
+                card_patch_m = re.search(r"\bpatch\s*([0-9]+\.[0-9xX]+)\b", card_text, re.I)
+                card_phase_m = re.search(r"\bphase\s*([12])\b", card_text, re.I)
+                card_version = card_patch_m.group(1).upper() if card_patch_m else version_value
+                card_phase = int(card_phase_m.group(1)) if card_phase_m else None
+                card_status = "TEASED" if (is_tba or section_status == "TEASED" or not has_real_timer) else section_status
+
+                char_links = [a for a in art.find_all("a", href=True) if "/characters/" in a["href"]]
+                char_name = None
+                char_img_url = None
+                for a in char_links:
+                    c_img = a.find("img") or art.find("img")
+                    raw_name = (c_img.get("alt") if c_img and c_img.get("alt") else "").strip()
+                    if not raw_name:
+                        raw_name = a["href"].rstrip("/").split("/")[-1].replace("-", " ").title()
+                    if 2 <= len(raw_name) <= 40 and not re.search(r"banner|weapon|resonator|phase|patch|current|upcoming|teased", raw_name, re.I):
+                        char_name = raw_name
+                        if c_img:
+                            char_img_url = urljoin(url, c_img.get("src") or c_img.get("data-src"))
+                        break
+
+                if not char_name:
+                    continue
+
+                card_row = {
+                    "title": char_name,
+                    "version": card_version,
+                    "phase": card_phase,
+                    "startAt": None,
+                    "endAt": None,
+                    "serverTimes": {},
+                    "status": "COMMUNITY",
+                    "scheduleStatus": card_status,
+                    "confidence": 0.9,
+                    "sourceLabel": "Prydwen Banner Overview",
+                    "sourceUrls": [url],
+                    "snapshotAt": now,
+                }
+                res_images = {}
+                f_img = fandom_image(char_name)
+                if f_img:
+                    res_images[char_name] = f_img
+                elif char_img_url:
+                    res_images[char_name] = char_img_url
+                if res_images:
+                    card_row["resonatorImages"] = res_images
+
+                output.append(card_row)
             continue
         # Restrict a record to the content after its heading and before the
         # next peer/parent heading. Never crawl the remainder of the page.
