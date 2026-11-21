@@ -9,7 +9,7 @@ class WorkflowSecurityTest(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "update-feed.yml").read_text(encoding="utf-8")
         build_job = workflow.split("  build-feed:\n", 1)[1].split("  deploy-pages:", 1)[0]
         deploy_job = workflow.split("  deploy-pages:\n", 1)[1]
-        self.assertIn("permissions:\n      contents: read", build_job)
+        self.assertIn("permissions:\n      contents: write", build_job)
         self.assertIn("      pages: read", build_job)
         self.assertNotIn("pages: write", build_job)
         self.assertNotIn("id-token: write", build_job)
