@@ -183,7 +183,8 @@ fun showCustomReminderPicker(context: Context, onSelected: (Instant) -> Unit) {
     android.app.DatePickerDialog(context, { _, year, month, day ->
         android.app.TimePickerDialog(context, { _, hour, minute ->
             val at = java.time.LocalDate.of(year, month + 1, day).atTime(hour, minute).atZone(ZoneId.systemDefault()).toInstant()
-            if (at.isAfter(Instant.now())) onSelected(at)
+            val target = if (at.isAfter(Instant.now())) at else nextCustomReminderTime(at)
+            onSelected(target)
         }, initial.hour, initial.minute, android.text.format.DateFormat.is24HourFormat(context)).show()
     }, initial.year, initial.monthValue - 1, initial.dayOfMonth).apply { datePicker.minDate = System.currentTimeMillis() }.show()
 }
@@ -235,7 +236,7 @@ fun showCustomReminderPicker(context: Context, onSelected: (Instant) -> Unit) {
                 }
             }
             item { Text("Intelligence Feed", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color(0xFFFFD994)) }
-            item { InfoCard("Live Intelligence", GITHUB_FEED_URL, "Sources include official notices, Reddit leaks, WuWa Banners, GenGamer, u7buy and LDShop. Leaks stay unconfirmed.") }
+            item { InfoCard("Live Intelligence", GITHUB_FEED_URL, "Sources include official notices, Game8, Prydwen, GenGamer, X, and community reporting. Leaks stay unconfirmed.") }
             item { Text("Security", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color(0xFFBFE8E2)) }
             item { InfoCard("Local-first", "No game login, password, cookies or account tokens are collected.", "Only the configured HTTPS feed is requested by the app.") }
             item { InfoCard("Leak Safety", "Leaks remain clearly marked as unconfirmed.", "Check the linked source before treating a claim as confirmed.") }
