@@ -54,7 +54,15 @@ fun BannersScreen(state: UiState, now: Instant, modifier: Modifier) {
         timing(it)?.startAt?.isAfter(now) == true || (timing(it) == null && it.scheduleStatus.equals("UPCOMING", true))
     }).sortedBy { timing(it)?.startAt ?: Instant.MAX }
 
+    val activeOrUpcomingNames = (active + upcoming).flatMap { b ->
+        b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim().lowercase(Locale.ROOT) }
+    }.toSet()
+
     val teased = banners.filter { it.scheduleStatus.equals("TEASED", true) && timing(it) == null }
+        .filterNot { b ->
+            val bNames = b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim().lowercase(Locale.ROOT) }
+            bNames.isNotEmpty() && bNames.all { it in activeOrUpcomingNames }
+        }
         .distinctBy { it.title.lowercase(Locale.ROOT) + it.version.orEmpty() }
 
     fun cacheEnd(b: BannerIntel): Instant? {
