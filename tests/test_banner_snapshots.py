@@ -394,7 +394,7 @@ class PrydwenBannerParsingTest(unittest.TestCase):
         self.assertNotIn("startAt", prydwen)
         self.assertFalse(prydwen.get("serverTimes"))
 
-    def test_multi_character_phase_less_prydwen_row_stays_upcoming_for_next_version(self):
+    def test_multi_character_phase_less_prydwen_row_becomes_teased_for_next_version(self):
         row = {
             "snapshotType": "prydwen", "title": "Lynae, Lucilla, Suoming", "version": None, "phase": None,
             "scheduleStatus": "UPCOMING", "sourceLabel": "Prydwen Banner Overview", "sourceUrls": [],
@@ -402,7 +402,7 @@ class PrydwenBannerParsingTest(unittest.TestCase):
 
         _harmonize_prydwen_rows([row], "3.7")
 
-        self.assertEqual("UPCOMING", row["scheduleStatus"])
+        self.assertEqual("TEASED", row["scheduleStatus"])
         self.assertEqual("3.8", row["version"])
 
     def test_teaser_section_without_character_cards_produces_no_teaser(self):
@@ -438,6 +438,48 @@ class PrydwenBannerParsingTest(unittest.TestCase):
         self.assertEqual("Lily", snapshots[0]["title"])
         self.assertEqual("Unfading Blossom", snapshots[0].get("weapon"))
         self.assertEqual("https://fandom.com/image.png", snapshots[0].get("weaponImages", {}).get("Unfading Blossom"))
+
+    def test_prydwen_tba_cards_override_mismatched_container_header(self):
+        soup = BeautifulSoup("""
+            <h2>Upcoming Banners</h2>
+            <h3>Patch 3.8 Expected Banners</h3>
+            <article class="banner-card character-banner-card featured upcoming-banner-card">
+              <div class="banner-art anna">
+                <a href="https://www.prydwen.gg/wuthering-waves/characters/anna"><img src="/anna.png" alt="Anna" /></a>
+              </div>
+              <div class="banner-body">
+                <div>Patch 4.0 Phase 1</div>
+                <div>Expected start TBA</div>
+                <div>Anna is the upcoming limited 5-star expected to debut in Patch 4.0 Phase 1.</div>
+              </div>
+            </article>
+            <article class="banner-card character-banner-card featured upcoming-banner-card">
+              <div class="banner-art april">
+                <a href="https://www.prydwen.gg/wuthering-waves/characters/april"><img src="/april.png" alt="April" /></a>
+              </div>
+              <div class="banner-body">
+                <div>Patch 4.X</div>
+                <div>Expected start TBA</div>
+                <div>April is the upcoming limited 5-star expected to debut in Patch 4.X.</div>
+              </div>
+            </article>
+        """, "html.parser")
+
+        with patch("aggregator.fandom_image", return_value="https://fandom.com/image.png"):
+            snapshots = prydwen_banner_snapshot(soup, soup.get_text(" ", strip=True),
+                                                "https://www.prydwen.gg/wuthering-waves/banners", "2026-11-21T00:00:00Z")
+
+        self.assertIsNotNone(snapshots)
+        self.assertEqual(2, len(snapshots))
+        self.assertEqual("Anna", snapshots[0]["title"])
+        self.assertEqual("4.0", snapshots[0]["version"])
+        self.assertEqual(1, snapshots[0]["phase"])
+        self.assertEqual("TEASED", snapshots[0]["scheduleStatus"])
+
+        self.assertEqual("April", snapshots[1]["title"])
+        self.assertEqual("4.X", snapshots[1]["version"])
+        self.assertIsNone(snapshots[1]["phase"])
+        self.assertEqual("TEASED", snapshots[1]["scheduleStatus"])
 
     def test_game8_overview_scrapes_featured_signature_weapons(self):
         overview_url = "https://game8.co/games/Wuthering-Waves/archives/453303"
