@@ -16,9 +16,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import androidx.work.*
 import com.nightwielder.wuwatracker.MainActivity
+import com.nightwielder.wuwatracker.dataStore
 import com.nightwielder.wuwatracker.saveMutex
 import com.nightwielder.wuwatracker.model.*
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +33,6 @@ import java.net.URL
 import java.time.*
 import java.util.concurrent.TimeUnit
 
-private val Context.dataStore by preferencesDataStore("wuwa_tracker")
 private const val CHANNEL_ID = "wuwa_reminders"
 private const val RESET_ALARM = 1001
 private const val FEED_WORK = "wuwa_feed_sync"
