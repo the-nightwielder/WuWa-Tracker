@@ -15,7 +15,7 @@ jobs:
   build-feed:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pages: read
     steps:
       - name: Checkout
@@ -34,6 +34,12 @@ jobs:
 
       - name: Build structured intelligence feed
         run: python data-pipeline/aggregator.py
+
+      - name: Commit updated weapon registry if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet data-pipeline/weapon_registry.json || (git add data-pipeline/weapon_registry.json && git commit -m "chore(pipeline): auto-update weapon registry [skip ci]" && git push)
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
