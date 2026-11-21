@@ -32,6 +32,7 @@ import kotlinx.coroutines.withContext
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -41,7 +42,7 @@ private fun formatBannerTime(i: Instant, server: Server, usesServerTime: Boolean
     DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a", Locale.US)
         .withZone(if (usesServerTime) server.bannerZone else ZoneId.systemDefault()).format(i)
 
-private fun phaseLabel(phase: Int?): String? = when (phase) {
+internal fun phaseLabel(phase: Int?): String? = when (phase) {
     1 -> "Phase I"; 2 -> "Phase II"; 3 -> "Phase III"; 4 -> "Phase IV"; else -> null
 }
 
@@ -167,7 +168,7 @@ fun extractPromoCodesWithDetails(feedItems: List<FeedItem>, now: Instant): List<
         val matches = codeRegex.findAll(text)
         for (m in matches) {
             val candidate = m.value
-            if (candidate in exclude || candidate.startsWith("HTTP")) continue
+            if (candidate in exclude || candidate.startsWith("HTTP") || candidate.all { it.isDigit() }) continue
             val isAlphaOnly = candidate.all { it.isLetter() }
             if (isAlphaOnly) {
                 val idx = m.range.first
@@ -231,8 +232,28 @@ private fun String.matchesSearchQuery(query: String): Boolean {
 }
 
 private fun parseDateString(raw: String): Instant? = runCatching {
-    val clean = raw.replace(Regex("\\s*\\([A-Za-z0-9+-]+\\)\\s*"), "").trim()
-    val zone = ZoneId.of("America/Los_Angeles")
+    val tzMatch = Regex("(?i)\\b(?:UTC|GMT)\\s*([+-]\\d{1,2}(?::?\\d{2})?)\\b").find(raw)
+    val fallbackZone: ZoneId = when {
+        tzMatch != null -> {
+            val offsetStr = tzMatch.groupValues[1]
+            val normOffset = if (offsetStr.contains(":")) offsetStr else {
+                val sign = offsetStr.take(1)
+                val hours = offsetStr.drop(1).toIntOrNull() ?: 8
+                "%s%02d:00".format(sign, hours)
+            }
+            ZoneOffset.of(normOffset)
+        }
+        Regex("(?i)\\b(?:UTC|GMT)\\b").containsMatchIn(raw) -> ZoneOffset.UTC
+        Regex("(?i)\\b(?:PST|PDT)\\b").containsMatchIn(raw) -> ZoneId.of("America/Los_Angeles")
+        Regex("(?i)\\b(?:EST|EDT)\\b").containsMatchIn(raw) -> ZoneId.of("America/New_York")
+        Regex("(?i)\\bJST\\b").containsMatchIn(raw) -> ZoneOffset.ofHours(9)
+        else -> ZoneOffset.ofHours(8)
+    }
+
+    val clean = raw.replace(Regex("\\s*\\([A-Za-z0-9+-:]+\\)\\s*"), " ")
+        .replace(Regex("(?i)\\b(UTC[+-]?\\d*|GMT[+-]?\\d*|PST|PDT|EST|EDT|CST|JST)\\b"), "")
+        .trim().replace(Regex("\\s+"), " ")
+
     val formatsWithTime = listOf(
         "M/d/yyyy H:mm", "M/d/yyyy h:mm a", "d/M/yyyy H:mm", "d/M/yyyy h:mm a",
         "MMM d, yyyy h:mm a", "MMM d yyyy h:mm a", "MMM d, yyyy H:mm", "MMM d yyyy H:mm",
@@ -241,7 +262,7 @@ private fun parseDateString(raw: String): Instant? = runCatching {
     for (f in formatsWithTime) {
         val parsed = runCatching {
             val dtf = DateTimeFormatter.ofPattern(f, Locale.US)
-            java.time.LocalDateTime.parse(clean, dtf).atZone(zone).toInstant()
+            java.time.LocalDateTime.parse(clean, dtf).atZone(fallbackZone).toInstant()
         }.getOrNull()
         if (parsed != null) return parsed
     }
@@ -251,7 +272,7 @@ private fun parseDateString(raw: String): Instant? = runCatching {
     for (f in formatsDateOnly) {
         val parsed = runCatching {
             val dtf = DateTimeFormatter.ofPattern(f, Locale.US)
-            java.time.LocalDate.parse(clean, dtf).atTime(23, 59, 59).atZone(zone).toInstant()
+            java.time.LocalDate.parse(clean, dtf).atTime(23, 59, 59).atZone(fallbackZone).toInstant()
         }.getOrNull()
         if (parsed != null) return parsed
     }
@@ -446,7 +467,14 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
     }
 }
 
-@Composable fun BannerOverviewCard(b: BannerIntel, current: Boolean, server: Server, cacheExpiresAt: Long, now: Instant = Instant.now()) {
+@Composable fun BannerOverviewCard(
+    b: BannerIntel,
+    current: Boolean,
+    server: Server,
+    cacheExpiresAt: Long,
+    now: Instant = Instant.now(),
+    characterSubtitle: ((String) -> String?)? = null
+) {
     var expanded by remember(b.title, current) { mutableStateOf(false) }
     val serverTiming = b.serverTimes[server.name]?.takeIf { it.startAt != null && it.endAt != null }
     val startAt = serverTiming?.startAt ?: b.startAt
@@ -566,24 +594,27 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
                                     }
                                     BadgePill(bText, bBg, bFg)
                                 }
-                                val sub = listOfNotNull("5★ Resonator", b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }).joinToString(" · ")
+                                val sub = characterSubtitle?.invoke(name)
+                                    ?: listOfNotNull("5★ Resonator", b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }).joinToString(" · ")
                                 Text(sub, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
                             }
                         }
                     }
-                    HorizontalDivider()
-                    Text("Weapons", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (current) Color(0xFFFFD994) else Color(0xFFBFE8E2))
-                    if (weapons.isEmpty()) Text("Weapon names will appear after the updated schedule feed is published.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA)) else weapons.forEachIndexed { index, name ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            WeaponArtwork(name, b.weaponImages[name], cacheExpiresAt)
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(name, fontWeight = FontWeight.SemiBold, color = Color.White)
-                                    val (wText, wBg, wFg) = if (index == 0) Triple("5★ SIGNATURE", Color(0x33FFD994), Color(0xFFFFD994)) else Triple("5★ FEATURED", Color(0x33BFE8E2), Color(0xFFBFE8E2))
-                                    BadgePill(wText, wBg, wFg)
+                    if (!b.scheduleStatus.equals("TEASED", true) || weapons.isNotEmpty()) {
+                        HorizontalDivider()
+                        Text("Weapons", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (current) Color(0xFFFFD994) else Color(0xFFBFE8E2))
+                        if (weapons.isEmpty()) Text("Weapon names will appear after the updated schedule feed is published.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA)) else weapons.forEachIndexed { index, name ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                WeaponArtwork(name, b.weaponImages[name], cacheExpiresAt)
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(name, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                        val (wText, wBg, wFg) = if (index == 0) Triple("5★ SIGNATURE", Color(0x33FFD994), Color(0xFFFFD994)) else Triple("5★ FEATURED", Color(0x33BFE8E2), Color(0xFFBFE8E2))
+                                        BadgePill(wText, wBg, wFg)
+                                    }
+                                    val sub = listOfNotNull("5★ Weapon", b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }).joinToString(" · ")
+                                    Text(sub, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
                                 }
-                                val sub = listOfNotNull("5★ Weapon", b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }).joinToString(" · ")
-                                Text(sub, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE2DDEA))
                             }
                         }
                     }
