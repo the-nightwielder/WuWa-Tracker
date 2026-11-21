@@ -169,10 +169,6 @@ fun loadArtwork(context: Context, identity: String, url: String, crop: Float, ex
         if (cachedDisk != null) return cachedDisk
     }
 
-    file.delete()
-    expiryFile.delete()
-    urlFile.delete()
-
     val connection = openFandomArtworkConnection(url)
     var bitmap: Bitmap? = null
     try {
@@ -182,6 +178,9 @@ fun loadArtwork(context: Context, identity: String, url: String, crop: Float, ex
         file.parentFile?.mkdirs()
         val temp = File(file.parentFile, file.name + "." + Thread.currentThread().id + ".tmp")
         FileOutputStream(temp).use { it.write(bytes) }
+        file.delete()
+        expiryFile.delete()
+        urlFile.delete()
         if (temp.renameTo(file)) {
             file.setLastModified(now)
             val effectiveExpiry = if (expiresAt == Long.MAX_VALUE || expiresAt <= 0L) now + ART_CACHE_TTL_MS else expiresAt
