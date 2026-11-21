@@ -257,6 +257,7 @@ fun UiState.withFeed(f: FeedResult) = copy(
     versions = f.versions,
     banners = f.banners,
     resonators = f.resonators,
+    weaponDetails = f.weaponDetails,
     version = f.latestVersion?.takeIf { it.isNotBlank() && !it.equals("null", true) && !it.equals("Unknown", true) }
         ?: f.banners.firstOrNull { it.scheduleStatus.equals("CURRENT", true) }?.version
         ?: f.versions.firstOrNull()?.version
@@ -291,6 +292,7 @@ suspend fun loadState(context: Context): UiState {
         versions = f.versions,
         banners = f.banners,
         resonators = f.resonators,
+        weaponDetails = f.weaponDetails,
         feedUrl = GITHUB_FEED_URL,
         lastSync = p[stringPreferencesKey("last_sync")] ?: "",
         serverSelected = p[booleanPreferencesKey("server_selected")] ?: false,
@@ -302,7 +304,7 @@ suspend fun loadState(context: Context): UiState {
     )
 }
 
-private val saveMutex = Mutex()
+val saveMutex = Mutex()
 
 suspend fun saveState(context: Context, state: UiState) {
     saveMutex.withLock {
@@ -339,6 +341,7 @@ fun stateToJson(state: UiState) = JSONObject().apply {
     put("versions", JSONArray().apply { state.versions.forEach { put(JSONObject().apply { put("version", it.version); put("status", it.status); put("confidence", it.confidence); put("sourceUrls", JSONArray(it.sourceUrls)) }) } })
     put("banners", JSONArray().apply { state.banners.forEach { put(JSONObject().apply { put("title", it.title); put("version", it.version); put("phase", it.phase); put("startAt", it.startAt?.toString()); put("endAt", it.endAt?.toString()); put("status", it.status); put("scheduleStatus", it.scheduleStatus); put("confidence", it.confidence); put("sourceLabel", it.sourceLabel); put("weapon", it.weaponClaim); put("resonatorImages", JSONObject(it.resonatorImages)); put("weaponImages", JSONObject(it.weaponImages)); put("serverTimes", JSONObject().apply { it.serverTimes.forEach { (key, time) -> put(key, JSONObject().apply { put("startAt", time.startAt?.toString()); put("endAt", time.endAt?.toString()) }) } }); put("sourceUrls", JSONArray(it.sourceUrls)) }) } })
     put("resonators", JSONArray().apply { state.resonators.forEach { put(JSONObject().apply { put("name", it.name); put("version", it.version); put("phase", it.phase); put("element", it.element); put("weapon", it.weapon); put("status", it.status); put("confidence", it.confidence); put("sourceUrls", JSONArray(it.sourceUrls)) }) } })
+    put("weaponDetails", JSONObject(state.weaponDetails))
 }
 
 private const val MAX_FEED_BYTES = 5 * 1024 * 1024
@@ -411,7 +414,8 @@ fun parseFeed(raw: String?): FeedResult {
         banners,
         parseResonators(root.optJSONArray("resonators") ?: JSONArray()),
         root.optString("latestVersion").takeIf { it.isNotBlank() && !it.equals("null", true) }
-            ?: root.optString("version").takeIf { it.isNotBlank() && !it.equals("null", true) }
+            ?: root.optString("version").takeIf { it.isNotBlank() && !it.equals("null", true) },
+        weaponDetails
     )
 }
 
@@ -440,11 +444,9 @@ fun refreshGithubFeed(
 
 private fun sourceLabel(type: String, name: String, id: String): String = when {
     type.startsWith("X") -> if (name.isNotBlank() && name != id) "X · $name" else "X (indexed)"
-    type == "Reddit" -> if (name.isNotBlank() && name != id) "Reddit · $name" else "Reddit"
     type == "Official website" -> if (name.isNotBlank() && name != id) "Official website · $name" else "Official website"
     type == "Website" -> if (name.isNotBlank() && name != id) "Website · $name" else "Website"
     id.startsWith("x-") -> "X (indexed)"
-    id.startsWith("reddit-") -> "Reddit"
     else -> "Website · $id"
 }
 
