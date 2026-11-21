@@ -170,7 +170,7 @@ fun extractPromoCodesWithDetails(feedItems: List<FeedItem>, now: Instant): List<
             if (candidate in exclude || candidate.startsWith("HTTP")) continue
             val isAlphaOnly = candidate.all { it.isLetter() }
             if (isAlphaOnly) {
-                val idx = text.indexOf(candidate)
+                val idx = m.range.first
                 val window = text.substring(maxOf(0, idx - 40), minOf(text.length, idx + candidate.length + 40)).lowercase(Locale.ROOT)
                 val nearCodeKeyword = listOf("code", "redeem", "gift", "reward", "convene", "astrite", "free").any { it in window }
                 if (!nearCodeKeyword) continue
