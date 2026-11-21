@@ -67,7 +67,6 @@ private fun WuWaTrackerRoot() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
-    val saveMutex = remember { Mutex() }
     var state by remember { mutableStateOf(UiState()) }
     var now by remember { mutableStateOf(Instant.now()) }
     var tab by remember { mutableIntStateOf(0) }
@@ -131,9 +130,7 @@ private fun WuWaTrackerRoot() {
         state = transform(state)
         val snapshot = state
         scope.launch {
-            saveMutex.withLock {
-                saveState(context, snapshot)
-            }
+            saveState(context, snapshot)
         }
     }
     val onRefreshFeed = {
@@ -284,7 +281,7 @@ suspend fun loadState(context: Context): UiState {
         weeklyDone = if (storedWeekly == weeklyKey) (p[booleanPreferencesKey("weekly")] ?: false) else false,
         weeklyDoneDate = p[stringPreferencesKey("weekly_done_date")] ?: "",
         reminderEnabled = p[booleanPreferencesKey("reminder")] ?: true,
-        reminderLead = p[intPreferencesKey("lead")]?.let { if (it == -1) -1 else it.coerceIn(0, 60) } ?: 0,
+        reminderLead = p[intPreferencesKey("lead")]?.let { if (it in setOf(15, 30, 60, -1)) it else 15 } ?: 15,
         version = p[stringPreferencesKey("version")]?.takeIf { it.isNotBlank() && !it.equals("Unknown", true) && !it.equals("null", true) }
             ?: f.banners.firstOrNull { it.scheduleStatus.equals("CURRENT", true) }?.version
             ?: f.versions.firstOrNull()?.version
@@ -305,8 +302,11 @@ suspend fun loadState(context: Context): UiState {
     )
 }
 
+private val saveMutex = Mutex()
+
 suspend fun saveState(context: Context, state: UiState) {
-    context.dataStore.edit { p ->
+    saveMutex.withLock {
+        context.dataStore.edit { p ->
         p[stringPreferencesKey("server")] = state.server.name
         p[stringPreferencesKey("reset_key")] = resetKey(state.server)
         p[stringPreferencesKey("weekly_reset_key")] = weeklyResetKey(state.server)
@@ -314,7 +314,6 @@ suspend fun saveState(context: Context, state: UiState) {
         p[booleanPreferencesKey("lunite")] = state.luniteDone
         p[booleanPreferencesKey("weekly")] = state.weeklyDone
         p[stringPreferencesKey("weekly_done_date")] = state.weeklyDoneDate
-        p[stringPreferencesKey("reminder")] = state.reminderEnabled.toString()
         p[booleanPreferencesKey("reminder")] = state.reminderEnabled
         p[intPreferencesKey("lead")] = state.reminderLead
         p[stringPreferencesKey("feed_url")] = state.feedUrl
@@ -329,6 +328,7 @@ suspend fun saveState(context: Context, state: UiState) {
         p[booleanPreferencesKey("monthly_wastes")] = state.monthlyWastes
         p[booleanPreferencesKey("monthly_matrix")] = state.monthlyMatrix
         state.customReminderAt?.let { p[stringPreferencesKey("custom_reminder_at")] = it.toString() } ?: p.remove(stringPreferencesKey("custom_reminder_at"))
+        }
     }
 }
 
@@ -353,7 +353,7 @@ fun parseFeed(raw: String?): FeedResult {
         val value = root.opt(fieldNames.next())
         require(value !is JSONArray || value.length() <= MAX_FEED_ARRAY_ITEMS) { "Feed contains too many records" }
     }
-    val weaponDetails = stringMap(root.optJSONObject("weaponDetails"))
+    val weaponDetails = plainStringMap(root.optJSONObject("weaponDetails"))
     fun normChar(s: String) = s.replace(Regex("[:()\\-_]"), " ").replace(Regex("\\s+"), " ").trim().lowercase(java.util.Locale.ROOT)
     val rawBannerRows = parseBanners(root.optJSONArray("scheduleSnapshots") ?: JSONArray()) +
             parseBanners(root.optJSONArray("banners") ?: JSONArray()) +
@@ -379,7 +379,10 @@ fun parseFeed(raw: String?): FeedResult {
         }
         if (finalWeapons.isNotEmpty()) b.copy(weaponClaim = finalWeapons.joinToString(", ")) else b
     }
-    val banners = bannerRows.groupBy { "${it.version.orEmpty()}|${it.phase ?: 0}" }
+    val banners = bannerRows.groupBy {
+        if (it.scheduleStatus.equals("TEASED", true)) "TEASED|${normChar(it.title)}"
+        else "${it.version.orEmpty()}|${it.phase ?: 0}"
+    }
         .values.mapNotNull { rows ->
             val best = rows.maxByOrNull { (if (it.weaponClaim.isNullOrBlank()) 0 else 10 + it.weaponClaim.length) + it.weaponImages.size * 3 + it.resonatorImages.size + it.serverTimes.size * 100 + (if (it.scheduleStatus.equals("TEASED", true)) 20 else 0) } ?: return@mapNotNull null
             val rawClaim = best.weaponClaim.takeIf { !it.isNullOrBlank() } ?: rows.mapNotNull { it.weaponClaim }.firstOrNull { it.isNotBlank() }
@@ -523,4 +526,5 @@ private fun parseResonators(a: JSONArray): List<ResonatorIntel> = buildList {
 private fun instant(s: String?) = runCatching { if (s.isNullOrBlank() || s == "null") null else Instant.parse(s) }.getOrNull()
 private fun strings(a: JSONArray?): List<String> = if (a == null) emptyList() else buildList { for (i in 0 until a.length()) add(a.optString(i)) }
 private fun stringMap(o: JSONObject?): Map<String, String> = if (o == null) emptyMap() else buildMap { val keys = o.keys(); while (keys.hasNext()) { val key = keys.next(); o.optString(key).takeIf { it.startsWith("https://") }?.let { put(key, it) } } }
+private fun plainStringMap(o: JSONObject?): Map<String, String> = if (o == null) emptyMap() else buildMap { val keys = o.keys(); while (keys.hasNext()) { val key = keys.next(); o.optString(key).takeIf { it.isNotBlank() && it != "null" }?.let { put(key, it) } } }
 fun mergeEvents(base: List<TrackerEvent>, remote: List<TrackerEvent>) = (base + remote).distinctBy { "${it.type}:${it.title}" }
