@@ -208,7 +208,7 @@ fun showCustomReminderPicker(context: Context, onSelected: (Instant) -> Unit) {
         update { it.copy(customReminderAt = selected) }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && !hasExactAlarmAccess(context)) showExactAlarmPrompt = true
     }
-    val options = listOf(0 to "At reset", 15 to "15 minutes before", 30 to "30 minutes before", 60 to "1 hour before", -1 to "Custom date & time")
+    val options = listOf(15 to "15 minutes before", 30 to "30 minutes before", 60 to "1 hour before", -1 to "Custom date & time")
     ArtworkScreen(modifier, R.drawable.bg_settings) {
         LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color(0xFFF3E9FF)) }
