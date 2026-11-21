@@ -234,10 +234,13 @@ private fun WuWaTrackerRoot() {
     }
 }
 
-fun cycleKey(server: Server, now: Instant = Instant.now()) = server.name + "-" + YearMonth.from(now.atZone(ZoneId.of(server.zone)))
+fun cycleKey(server: Server, now: Instant = Instant.now()): String {
+    val zdt = now.atZone(ZoneId.of(server.zone)).minusHours(4)
+    return server.name + "-" + YearMonth.from(zdt)
+}
 fun resetKey(server: Server, now: Instant = Instant.now()) = "${server.name}-${nextReset(server, now).minusNanos(1).toLocalDate()}"
 fun weeklyResetKey(server: Server, now: Instant = Instant.now()): String {
-    val zdt = now.atZone(ZoneId.of(server.zone))
+    val zdt = now.atZone(ZoneId.of(server.zone)).minusHours(4)
     val monday = zdt.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toLocalDate()
     return "${server.name}-$monday"
 }
