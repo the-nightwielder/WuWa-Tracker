@@ -7,7 +7,7 @@ import java.time.ZoneOffset
 enum class Server(val label: String, val zone: String) {
     AMERICA("America", "America/New_York"),
     EUROPE("Europe", "Europe/London"),
-    ASIA("Asia", "Asia/Shanghai"),
+    ASIA("Asia", "Asia/Tokyo"),
     SEA("SEA", "Asia/Singapore"),
     HMT("HMT", "Asia/Hong_Kong")
 }
