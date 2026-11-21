@@ -95,7 +95,36 @@ fun BannersScreen(state: UiState, now: Instant, modifier: Modifier) {
             items(upcoming) { b -> BannerOverviewCard(b, false, state.server, cacheEnd(b)?.toEpochMilli() ?: Long.MAX_VALUE, now) }
             item { Text("Teased Resonator Banners", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFE7DAFF)) }
             if (teased.isNotEmpty()) {
-                items(teased) { b -> BannerOverviewCard(b, false, state.server, Long.MAX_VALUE, now) }
+                val lead = teased.first()
+                val allNames = teased.flatMap { b ->
+                    b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }.filter { it.isNotBlank() }
+                }.distinctBy { it.lowercase(Locale.ROOT) }.take(8)
+
+                val mergedImages = teased.flatMap { it.resonatorImages.entries }
+                    .associate { it.key to it.value }
+
+                val consolidatedTeased = lead.copy(
+                    title = allNames.joinToString(", "),
+                    resonatorImages = mergedImages
+                )
+
+                val teasedSubtitles = teased.flatMap { b ->
+                    val vStr = b.version?.let { "Version $it" }
+                    val pStr = b.phase?.let { phaseLabel(it) }
+                    val desc = listOfNotNull("5★ Resonator", vStr, pStr).joinToString(" · ")
+                    b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim().lowercase(Locale.ROOT) to desc }
+                }.toMap()
+
+                item {
+                    BannerOverviewCard(
+                        b = consolidatedTeased,
+                        current = false,
+                        server = state.server,
+                        cacheExpiresAt = Long.MAX_VALUE,
+                        now = now,
+                        characterSubtitle = { name -> teasedSubtitles[name.lowercase(Locale.ROOT)] }
+                    )
+                }
             } else {
                 item { InfoCard("Teased Resonators", "No future resonators are currently teased.", "New character teasers and drip marketing will appear here once announced by Kuro Games.") }
             }
