@@ -511,7 +511,8 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
     val scheduleDescription = if (scheduleRange.isNotBlank()) "${if (current) "From " else "Starts "}$scheduleRange$scheduleSuffix" else missingScheduleLabel
     val bannerSummary = listOfNotNull(b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }, scheduleDescription).joinToString(" · ")
     val expandedSummary = listOfNotNull(b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }, scheduleRange.takeIf { it.isNotBlank() }?.plus(scheduleSuffix)).joinToString(" · ").ifBlank { missingScheduleLabel }
-    val names = b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(Locale.ROOT) }.take(3)
+    val maxNames = if (b.scheduleStatus.equals("TEASED", true)) 8 else 3
+    val names = b.title.split(Regex("\\s*,\\s*|\\s+and\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(Locale.ROOT) }.take(maxNames)
     val weapons = b.weaponClaim?.split(Regex("\\s*,\\s*|\\s+and\\s+|\\s*;\\s*"))?.map { it.trim() }?.filter { it.isNotBlank() }?.distinctBy { it.lowercase(Locale.ROOT) }.orEmpty().take(3)
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (current) Color(0xFF292438) else Color(0xFF26323C))) {
         Column {
@@ -556,7 +557,13 @@ private fun BannerIntel.relevantBanner(version: String, now: Instant): Boolean =
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(name, fontWeight = FontWeight.SemiBold, color = Color.White)
-                                    val (bText, bBg, bFg) = if (index == 0) Triple("5★ DEBUT", Color(0x33FFD994), Color(0xFFFFD994)) else Triple("5★ RERUN", Color(0x33BFE8E2), Color(0xFFBFE8E2))
+                                    val (bText, bBg, bFg) = if (b.scheduleStatus.equals("TEASED", true)) {
+                                        Triple("5★ TEASED", Color(0x33FFD994), Color(0xFFFFD994))
+                                    } else if (index == 0) {
+                                        Triple("5★ DEBUT", Color(0x33FFD994), Color(0xFFFFD994))
+                                    } else {
+                                        Triple("5★ RERUN", Color(0x33BFE8E2), Color(0xFFBFE8E2))
+                                    }
                                     BadgePill(bText, bBg, bFg)
                                 }
                                 val sub = listOfNotNull("5★ Resonator", b.version?.let { "Version $it" }, b.phase?.let { phaseLabel(it) }).joinToString(" · ")
