@@ -19,10 +19,12 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.work.*
 import com.nightwielder.wuwatracker.MainActivity
+import com.nightwielder.wuwatracker.saveMutex
 import com.nightwielder.wuwatracker.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -131,7 +133,7 @@ fun cancelResetAlarm(context: Context? = null) {
     ctx.getSystemService(AlarmManager::class.java).cancel(pending)
 }
 
-fun enqueueFeedSync(context: Context, immediate: Boolean = false) {
+fun enqueueFeedSync(context: Context, immediate: Boolean = true) {
     if (immediate) {
         val r = OneTimeWorkRequestBuilder<FeedSyncWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -156,7 +158,7 @@ class BootReceiver : BroadcastReceiver() {
                     val s = com.nightwielder.wuwatracker.loadState(context)
                     if (s.reminderEnabled && s.reminderLead >= 0) scheduleResetAlarm(context, s.server, s.reminderLead)
                     if (s.reminderEnabled && s.reminderLead == -1) s.customReminderAt?.let { scheduleCustomReminder(context, it) }
-                    if (s.feedUrl.isNotBlank()) enqueueFeedSync(context)
+                    if (s.feedUrl.isNotBlank()) enqueueFeedSync(context, immediate = true)
                 } finally {
                     p.finish()
                 }
@@ -209,17 +211,20 @@ class FeedSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineW
         val url = GITHUB_FEED_URL
         return runCatching {
             val f = fetchFeedHelper(url)
-            applicationContext.dataStore.edit {
-                it[stringPreferencesKey("cached_feed")] = JSONObject().apply {
-                    put("latestVersion", f.latestVersion)
-                    put("news", JSONArray().apply { f.items.forEach { put(JSONObject().apply { put("title", it.title); put("url", it.url); put("summary", it.summary); put("status", it.status); put("sourceLabel", it.source); put("publishedAt", it.publishedAt); put("confidence", it.confidence); if (it.targetVersion != null) put("targetVersion", it.targetVersion) }) } })
-                    put("events", JSONArray().apply { f.events.forEach { put(JSONObject().apply { put("title", it.title); put("type", it.type); put("startAt", it.start.toString()); put("endAt", it.end?.toString()); put("note", it.note); put("sourceUrl", it.sourceUrl); put("status", it.status); put("confidence", it.confidence) }) } })
-                    put("versions", JSONArray().apply { f.versions.forEach { put(JSONObject().apply { put("version", it.version); put("status", it.status); put("confidence", it.confidence); put("sourceUrls", JSONArray(it.sourceUrls)) }) } })
-                    put("banners", JSONArray().apply { f.banners.forEach { put(JSONObject().apply { put("title", it.title); put("version", it.version); put("phase", it.phase); put("startAt", it.startAt?.toString()); put("endAt", it.endAt?.toString()); put("status", it.status); put("scheduleStatus", it.scheduleStatus); put("confidence", it.confidence); put("sourceLabel", it.sourceLabel); put("weapon", it.weaponClaim); put("resonatorImages", JSONObject(it.resonatorImages)); put("weaponImages", JSONObject(it.weaponImages)); put("serverTimes", JSONObject().apply { it.serverTimes.forEach { (key, time) -> put(key, JSONObject().apply { put("startAt", time.startAt?.toString()); put("endAt", time.endAt?.toString()) }) } }); put("sourceUrls", JSONArray(it.sourceUrls)) }) } })
-                    put("resonators", JSONArray().apply { f.resonators.forEach { put(JSONObject().apply { put("name", it.name); put("version", it.version); put("phase", it.phase); put("element", it.element); put("weapon", it.weapon); put("status", it.status); put("confidence", it.confidence); put("sourceUrls", JSONArray(it.sourceUrls)) }) } })
-                }.toString()
-                it[stringPreferencesKey("last_sync")] = Instant.now().toString()
-                f.latestVersion?.let { v -> it[stringPreferencesKey("version")] = v }
+            saveMutex.withLock {
+                applicationContext.dataStore.edit {
+                    it[stringPreferencesKey("cached_feed")] = JSONObject().apply {
+                        put("latestVersion", f.latestVersion)
+                        put("news", JSONArray().apply { f.items.forEach { put(JSONObject().apply { put("title", it.title); put("url", it.url); put("summary", it.summary); put("status", it.status); put("sourceLabel", it.source); put("publishedAt", it.publishedAt); put("confidence", it.confidence); if (it.targetVersion != null) put("targetVersion", it.targetVersion) }) } })
+                        put("events", JSONArray().apply { f.events.forEach { put(JSONObject().apply { put("title", it.title); put("type", it.type); put("startAt", it.start.toString()); put("endAt", it.end?.toString()); put("note", it.note); put("sourceUrl", it.sourceUrl); put("status", it.status); put("confidence", it.confidence) }) } })
+                        put("versions", JSONArray().apply { f.versions.forEach { put(JSONObject().apply { put("version", it.version); put("status", it.status); put("confidence", it.confidence); put("sourceUrls", JSONArray(it.sourceUrls)) }) } })
+                        put("banners", JSONArray().apply { f.banners.forEach { put(JSONObject().apply { put("title", it.title); put("version", it.version); put("phase", it.phase); put("startAt", it.startAt?.toString()); put("endAt", it.endAt?.toString()); put("status", it.status); put("scheduleStatus", it.scheduleStatus); put("confidence", it.confidence); put("sourceLabel", it.sourceLabel); put("weapon", it.weaponClaim); put("resonatorImages", JSONObject(it.resonatorImages)); put("weaponImages", JSONObject(it.weaponImages)); put("serverTimes", JSONObject().apply { it.serverTimes.forEach { (key, time) -> put(key, JSONObject().apply { put("startAt", time.startAt?.toString()); put("endAt", time.endAt?.toString()) }) } }); put("sourceUrls", JSONArray(it.sourceUrls)) }) } })
+                        put("resonators", JSONArray().apply { f.resonators.forEach { put(JSONObject().apply { put("name", it.name); put("version", it.version); put("phase", it.phase); put("element", it.element); put("weapon", it.weapon); put("status", it.status); put("confidence", it.confidence); put("sourceUrls", JSONArray(it.sourceUrls)) }) } })
+                        put("weaponDetails", JSONObject(f.weaponDetails))
+                    }.toString()
+                    it[stringPreferencesKey("last_sync")] = Instant.now().toString()
+                    f.latestVersion?.let { v -> it[stringPreferencesKey("version")] = v }
+                }
             }
             Result.success()
         }.getOrElse { if (runAttemptCount < 3) Result.retry() else Result.failure() }
