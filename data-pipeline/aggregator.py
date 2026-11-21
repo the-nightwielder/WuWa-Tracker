@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""WuWa Tracker v1.3 free structured intelligence pipeline.
+"""WuWa Tracker free structured intelligence pipeline.
 
-No paid X API is required. X discovery uses public pages indexed by Google News RSS,
-while Reddit's public RSS feed is used for the leak community. All extracted claims are
-source-attributed and confidence-scored; leaks never become official automatically.
+No paid X API is required. Discovery uses public pages indexed by Google News RSS
+and official Kuro channels. All extracted claims are source-attributed and confidence-scored;
+leaks never become official automatically.
 """
 import hashlib, html, json, os, re
 from collections import defaultdict
@@ -359,37 +359,6 @@ def banner_snapshot(source):
         return game8_banner_snapshot(source, soup, text, url, now)
     if source.get("snapshotType") == "prydwen":
         return prydwen_banner_snapshot(soup, text, url, now)
-    if source.get("snapshotType") == "current":
-        current = re.search(r"Current WuWa banner\s*:\s*([^\.]+?)\.\s*Banner", text, re.I)
-        version = VERSION_RE.search(text)
-        phase = PHASE_RE.search(text)
-        start = end = None
-        for row in soup.find_all("tr"):
-            cells = [clean_text(cell.get_text(" ", strip=True)) for cell in row.find_all(["td", "th"])]
-            if cells and "Live banner phase" in cells[0] and len(cells) > 2:
-                phase_match = PHASE_RE.search(" ".join(cells[:2]))
-                row_version = VERSION_RE.search(" ".join(cells[:2]))
-                version = row_version or version
-                phase = phase_match or phase
-                dates = re.findall(r"(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+20\d{2}", cells[2], re.I)
-                if len(dates) >= 2:
-                    start = snapshot_date(dates[0])
-                    end = snapshot_date(dates[1], True)
-                break
-        title = clean_text(current.group(1)).rstrip(".") if current else ""
-        if not title:
-            return None
-        weapon_match = re.search(r"(?:featured|signature)\s+weapon(?:\s+banner)?\s*(?:is|:|—|-)\s*([A-Z][A-Za-z0-9'’ -]{2,40})", text, re.I)
-        weapon = clean_text(weapon_match.group(1)).rstrip(" .") if weapon_match else None
-        resonators = [name.strip() for name in re.split(r",|\band\b", title) if name.strip()]
-        return {
-            "title": title, "version": version.group(1) if version else None,
-            "phase": int(phase.group(1)) if phase else None, "startAt": start, "endAt": end,
-            "weapon": weapon, "status": "COMMUNITY", "confidence": 0.85,
-            "resonatorImages": {name: image for name in resonators if (image := fandom_image(name))},
-            "weaponImages": {weapon: image} if weapon and (image := fandom_image(weapon)) else {},
-            "sourceLabel": "WuWa Banners", "sourceUrls": [url], "snapshotAt": now
-        }
     heading = next((clean_text(h.get_text(" ", strip=True)) for h in soup.find_all(["h1", "h2", "h3"]) if "countdown" in h.get_text(" ", strip=True).lower()), "")
     match = re.search(r"([A-Z][A-Za-z]+(?:,\s*[A-Z][A-Za-z]+)*(?:,?\s+and\s+[A-Z][A-Za-z]+)?)\s+Banner Countdown", heading, re.I)
     release = re.search(r"(?:set to release|release|banner starts?)\b.+?\bon\s+([A-Z][a-z]+\s+\d{1,2},\s+20\d{2})", text, re.I)
