@@ -1070,10 +1070,14 @@ def _source_health_entry(source_id, error, stage=None):
 def _remove_stale_prydwen_rows(snapshots, live_version):
     if not live_version:
         return snapshots
-    live = tuple(map(int, live_version.split(".")))
+    def _ver_key(v):
+        nums = re.findall(r"\d+", str(v))
+        return tuple(map(int, nums)) if nums else (0,)
+
+    live = _ver_key(live_version)
     return [row for row in snapshots if not (
         row.get("snapshotType") == "prydwen" and row.get("version")
-        and tuple(map(int, row["version"].split("."))) < live
+        and _ver_key(row["version"]) < live
     )]
 
 
@@ -1257,16 +1261,42 @@ def prydwen_banner_snapshot(soup, text, url, now):
                 char_links = [a for a in art.find_all("a", href=True) if "/characters/" in a["href"]]
                 char_name = None
                 char_img_url = None
-                for a in char_links:
-                    c_img = a.find("img") or art.find("img")
-                    raw_name = (c_img.get("alt") if c_img and c_img.get("alt") else "").strip()
-                    if not raw_name:
-                        raw_name = a["href"].rstrip("/").split("/")[-1].replace("-", " ").title()
-                    if 2 <= len(raw_name) <= 40 and not re.search(r"banner|weapon|resonator|phase|patch|current|upcoming|teased", raw_name, re.I):
-                        char_name = raw_name
-                        if c_img:
-                            char_img_url = urljoin(url, c_img.get("src") or c_img.get("data-src"))
-                        break
+
+                # 1. Direct banner name paragraph/heading
+                name_el = art.find(class_=re.compile(r"\bbanner-name\b", re.I))
+                if name_el and name_el.get_text(strip=True):
+                    candidate = clean_text(name_el.get_text(strip=True))
+                    if 2 <= len(candidate) <= 40:
+                        char_name = candidate
+
+                # 2. aria-label on character link (e.g. "Open Anna")
+                if not char_name:
+                    for a in char_links:
+                        aria = a.get("aria-label", "")
+                        clean_aria = re.sub(r"^(?:open|view)\s+", "", aria, flags=re.I).strip()
+                        if 2 <= len(clean_aria) <= 40 and not re.search(r"^(?:banner|weapon|resonator|phase|patch)$", clean_aria, re.I):
+                            char_name = clean_aria
+                            break
+
+                # 3. img alt text (e.g. "Anna banner art")
+                if not char_name:
+                    c_img = art.find("img")
+                    if c_img and c_img.get("alt"):
+                        alt_clean = re.sub(r"\b(?:banner(?:\s+art)?|art|character)\b", "", c_img["alt"], flags=re.I).strip()
+                        if 2 <= len(alt_clean) <= 40:
+                            char_name = alt_clean
+
+                # 4. Character URL slug fallback (e.g. /characters/anna -> Anna)
+                if not char_name:
+                    for a in char_links:
+                        slug = a["href"].rstrip("/").split("/")[-1].replace("-", " ").title()
+                        if 2 <= len(slug) <= 40 and not re.search(r"^(?:banner|weapon|resonator|phase|patch)$", slug, re.I):
+                            char_name = slug
+                            break
+
+                c_img = art.find("img")
+                if c_img:
+                    char_img_url = urljoin(url, c_img.get("src") or c_img.get("data-src"))
 
                 if not char_name:
                     continue
@@ -1487,11 +1517,15 @@ def main():
             continue
         if start <= now_utc <= end:
             live_version_candidates.append(snapshot["version"])
+    def _candidate_key(v):
+        nums = re.findall(r"\d+", str(v))
+        return tuple(map(int, nums)) if nums else (0,)
+
     if not live_version_candidates:
         for snapshot in snapshots:
             if snapshot.get("scheduleStatus") in {"CURRENT", "UPCOMING"} and snapshot.get("version"):
                 live_version_candidates.append(snapshot["version"])
-    live_version = max(live_version_candidates, key=lambda value: tuple(map(int, value.split(".")))) if live_version_candidates else None
+    live_version = max(live_version_candidates, key=_candidate_key) if live_version_candidates else None
     snapshots = _remove_stale_prydwen_rows(snapshots, live_version)
     snapshots = _harmonize_prydwen_rows(snapshots, live_version)
     current_version = live_version
