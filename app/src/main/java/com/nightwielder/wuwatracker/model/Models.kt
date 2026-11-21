@@ -89,7 +89,8 @@ data class FeedResult(
     val versions: List<VersionIntel>,
     val banners: List<BannerIntel>,
     val resonators: List<ResonatorIntel>,
-    val latestVersion: String?
+    val latestVersion: String?,
+    val weaponDetails: Map<String, String> = emptyMap()
 )
 
 data class UiState(
@@ -113,7 +114,8 @@ data class UiState(
     val collapsedSections: Set<String> = emptySet(),
     val monthlyTower: Boolean = false,
     val monthlyWastes: Boolean = false,
-    val monthlyMatrix: Boolean = false
+    val monthlyMatrix: Boolean = false,
+    val weaponDetails: Map<String, String> = emptyMap()
 )
 
 fun defaultEvents() = listOf(
