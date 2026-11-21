@@ -99,7 +99,7 @@ data class UiState(
     val weeklyDone: Boolean = false,
     val weeklyDoneDate: String = "",
     val reminderEnabled: Boolean = true,
-    val reminderLead: Int = 0,
+    val reminderLead: Int = 15,
     val version: String = "Unknown",
     val events: List<TrackerEvent> = defaultEvents(),
     val feedItems: List<FeedItem> = emptyList(),
